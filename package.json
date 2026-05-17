@@ -1,0 +1,28 @@
+{
+  "name": "tagam-accounting",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "tsx apps/api/src/server.ts",
+    "db:check": "tsx packages/database/src/check.ts",
+    "db:migrate": "tsx packages/database/src/migrate.ts",
+    "db:seed:demo": "tsx packages/database/src/seed-demo.ts",
+    "db:smoke": "tsx packages/database/src/smoke.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.4.5",
+    "@types/node": "^20.19.25",
+    "@types/pg": "^8.16.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tagam-accounting-postgres
+    environment:
+      POSTGRES_DB: tagam_accounting
+      POSTGRES_USER: tagam
+      POSTGRES_PASSWORD: tagam
+    ports:
+      - "5432:5432"
+    volumes:
+      - tagam-accounting-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tagam -d tagam_accounting"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  tagam-accounting-postgres:
