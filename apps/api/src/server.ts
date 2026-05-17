@@ -7,8 +7,11 @@ import {
   createProduct,
   getDemoSummary,
   getInventorySummary,
+  getKmrsMenuItemAccessTarget,
   getRecipeCostDetail,
   importKmrsMenuSnapshot,
+  linkKmrsMenuItemToRecipe,
+  listKmrsConnections,
   listKmrsImportedMenuItems,
   listLocations,
   listKmrsSyncRuns,
@@ -19,6 +22,7 @@ import {
   listProductCategories,
   listRecipeVersions,
   listUnits,
+  unlinkKmrsMenuItemRecipe,
 } from "@tagam-accounting/database";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { resolve } from "node:path";
@@ -90,11 +94,30 @@ type KmrsSyncRunsQuery = {
   limit?: string;
 };
 
+type KmrsConnectionsQuery = {
+  organizationId?: string;
+  locationId?: string;
+  limit?: string;
+};
+
 type KmrsMenuItemsQuery = {
   organizationId?: string;
   locationId?: string;
   kmrsConnectionId?: string;
   limit?: string;
+};
+
+type KmrsMenuItemLinkParams = {
+  kmrsMenuItemId: string;
+};
+
+type KmrsMenuItemLinkQuery = {
+  organizationId?: string;
+};
+
+type KmrsMenuItemLinkBody = {
+  organizationId?: string;
+  recipeVersionId?: string;
 };
 
 type KmrsWriteoffBody = {
@@ -164,11 +187,16 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       message.includes("baseUrl is required") ||
       message.includes("kmrsMerchantId is required") ||
       message.includes("restaurantSlug is required") ||
+      message.includes("recipeVersionId is required") ||
       message.includes("lines[") ||
       message.includes("lines must") ||
       message.includes("items must")
     ) {
       return reply.code(400).send({ error: message });
+    }
+
+    if (message.includes("was not found")) {
+      return reply.code(404).send({ error: message });
     }
 
     if (
@@ -367,6 +395,25 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     return { data: rows };
   });
 
+  app.get<{ Querystring: KmrsConnectionsQuery }>("/v1/kmrs/connections", async (request, reply) => {
+    const organizationId = getOrganizationId(request);
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId,
+      ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+    }, { require: ["locationId"] });
+
+    if (scopeDenial) {
+      return forbidden(reply, scopeDenial);
+    }
+
+    const rows = await listKmrsConnections(pool, organizationId, {
+      limit: parseLimit(request.query.limit, 50),
+      ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+    });
+
+    return { data: rows };
+  });
+
   app.get<{ Querystring: KmrsMenuItemsQuery }>("/v1/kmrs/menu-items", async (request, reply) => {
     const organizationId = getOrganizationId(request);
     const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
@@ -387,6 +434,85 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
 
     return { data: rows };
   });
+
+  app.put<{ Params: KmrsMenuItemLinkParams; Body: KmrsMenuItemLinkBody }>(
+    "/v1/kmrs/menu-items/:kmrsMenuItemId/link",
+    async (request, reply) => {
+      const organizationId = request.body.organizationId ?? getHeaderOrganizationId(request);
+
+      if (!organizationId) {
+        return reply.code(400).send({ error: "organizationId is required" });
+      }
+
+      if (!request.body.recipeVersionId) {
+        return reply.code(400).send({ error: "recipeVersionId is required" });
+      }
+
+      const target = await getKmrsMenuItemAccessTarget(pool, organizationId, request.params.kmrsMenuItemId);
+
+      if (!target) {
+        return reply.code(404).send({ error: "KMRS menu item was not found" });
+      }
+
+      const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+        organizationId: target.organizationId,
+        ...(target.locationId !== null ? { locationId: target.locationId } : {}),
+        ...(target.kmrsConnectionId !== null ? { kmrsConnectionId: target.kmrsConnectionId } : {}),
+        ...(target.baseUrl !== null ? { baseUrl: target.baseUrl } : {}),
+        ...(target.restaurantSlug !== null ? { restaurantSlug: target.restaurantSlug } : {}),
+        ...(target.kmrsMerchantId !== null ? { kmrsMerchantId: target.kmrsMerchantId } : {}),
+      }, { require: ["locationId"] });
+
+      if (scopeDenial) {
+        return forbidden(reply, scopeDenial);
+      }
+
+      const link = await linkKmrsMenuItemToRecipe(pool, {
+        organizationId,
+        kmrsMenuItemId: request.params.kmrsMenuItemId,
+        recipeVersionId: request.body.recipeVersionId,
+      });
+
+      return reply.send({ data: link });
+    },
+  );
+
+  app.delete<{ Params: KmrsMenuItemLinkParams; Querystring: KmrsMenuItemLinkQuery }>(
+    "/v1/kmrs/menu-items/:kmrsMenuItemId/link",
+    async (request, reply) => {
+      const organizationId = request.query.organizationId ?? getHeaderOrganizationId(request);
+
+      if (!organizationId) {
+        return reply.code(400).send({ error: "organizationId is required" });
+      }
+
+      const target = await getKmrsMenuItemAccessTarget(pool, organizationId, request.params.kmrsMenuItemId);
+
+      if (!target) {
+        return reply.code(404).send({ error: "KMRS menu item was not found" });
+      }
+
+      const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+        organizationId: target.organizationId,
+        ...(target.locationId !== null ? { locationId: target.locationId } : {}),
+        ...(target.kmrsConnectionId !== null ? { kmrsConnectionId: target.kmrsConnectionId } : {}),
+        ...(target.baseUrl !== null ? { baseUrl: target.baseUrl } : {}),
+        ...(target.restaurantSlug !== null ? { restaurantSlug: target.restaurantSlug } : {}),
+        ...(target.kmrsMerchantId !== null ? { kmrsMerchantId: target.kmrsMerchantId } : {}),
+      }, { require: ["locationId"] });
+
+      if (scopeDenial) {
+        return forbidden(reply, scopeDenial);
+      }
+
+      const result = await unlinkKmrsMenuItemRecipe(pool, {
+        organizationId,
+        kmrsMenuItemId: request.params.kmrsMenuItemId,
+      });
+
+      return reply.send({ data: result });
+    },
+  );
 
   app.post<{ Body: KmrsMenuImportBody }>("/v1/kmrs/import/menu", async (request, reply) => {
     const input = parseKmrsMenuImportBody(request);

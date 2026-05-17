@@ -168,7 +168,21 @@ Query params:
 - `kmrsConnectionId`
 - `limit`
 
+### `GET /v1/kmrs/connections`
+
+Protected in `protected` and `strict` auth modes.
+
+Query params:
+
+- `organizationId`
+- `locationId`
+- `limit`
+
+Returns KMRS connection rows for the allowed restaurant/location, including base URL, merchant ID, restaurant slug, last sync time, imported item count, and linked item count.
+
 ### `GET /v1/kmrs/menu-items`
+
+Protected in `protected` and `strict` auth modes.
 
 Query params:
 
@@ -178,6 +192,27 @@ Query params:
 - `limit`
 
 Returns imported KMRS menu items and their recipe-link status.
+
+### `PUT /v1/kmrs/menu-items/:kmrsMenuItemId/link`
+
+Protected in `protected` and `strict` auth modes.
+
+Links one imported KMRS menu item to an active recipe version. Existing active links for that KMRS item are archived first.
+
+Required body:
+
+- `organizationId` or `x-organization-id`
+- `recipeVersionId`
+
+### `DELETE /v1/kmrs/menu-items/:kmrsMenuItemId/link`
+
+Protected in `protected` and `strict` auth modes.
+
+Archives the active recipe link for an imported KMRS menu item.
+
+Query params:
+
+- `organizationId`
 
 ### `POST /v1/kmrs/import/menu`
 

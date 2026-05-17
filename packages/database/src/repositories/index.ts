@@ -26,12 +26,22 @@ export { getInventorySummary } from "./stock.js";
 export type { InventorySummaryRow } from "./stock.js";
 export { listKmrsSyncRuns } from "./kmrs-sync.js";
 export type { KmrsSyncRunRecord } from "./kmrs-sync.js";
-export { importKmrsMenuSnapshot, listKmrsImportedMenuItems } from "./kmrs-menu-import.js";
+export {
+  getKmrsMenuItemAccessTarget,
+  importKmrsMenuSnapshot,
+  linkKmrsMenuItemToRecipe,
+  listKmrsConnections,
+  listKmrsImportedMenuItems,
+  unlinkKmrsMenuItemRecipe,
+} from "./kmrs-menu-import.js";
 export type {
+  KmrsConnectionRecord,
   KmrsImportedMenuItemRecord,
+  KmrsMenuItemAccessTarget,
   KmrsMenuImportInput,
   KmrsMenuImportItem,
   KmrsMenuImportResult,
+  KmrsMenuRecipeLinkRecord,
 } from "./kmrs-menu-import.js";
 export { commitKmrsSaleWriteoff, previewKmrsSaleWriteoff } from "./kmrs-writeoffs.js";
 export type {

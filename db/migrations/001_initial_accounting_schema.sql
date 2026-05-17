@@ -693,6 +693,7 @@ create table kmrs_connections (
   location_id uuid references locations(id) on delete cascade,
   base_url text not null,
   kmrs_merchant_id text,
+  restaurant_slug text,
   auth_mode text not null default 'token' check (auth_mode in ('token', 'basic', 'oauth', 'manual')),
   secret_ref text,
   status text not null default 'active' check (status in ('active', 'paused', 'error', 'archived')),
@@ -951,6 +952,7 @@ create index idx_recipe_versions_recipe_status on recipe_versions(recipe_id, sta
 create index idx_recipe_lines_version on recipe_lines(recipe_version_id);
 create index idx_production_batches_location_status on production_batches(location_id, status);
 create index idx_kmrs_menu_items_connection_item on kmrs_menu_items(kmrs_connection_id, kmrs_item_id);
+create index idx_kmrs_connections_restaurant_scope on kmrs_connections(organization_id, location_id, base_url, restaurant_slug);
 create index idx_kmrs_orders_connection_order on kmrs_orders(kmrs_connection_id, kmrs_order_id);
 create index idx_order_writeoffs_kmrs_order on order_writeoffs(kmrs_order_id);
 create index idx_theoretical_usage_period on theoretical_usage_snapshots(location_id, period_start, period_end);

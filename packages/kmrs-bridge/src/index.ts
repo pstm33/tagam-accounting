@@ -311,7 +311,7 @@ function normalizeMenuItem(
     description: stripHtml(String(item.item_description ?? "")),
     ...(Number.isFinite(price) ? { price } : {}),
     currency: currencyCode,
-    isAvailable: truthy(item.available ?? true) && !item.item_unavailable,
+    isAvailable: truthy(item.available ?? true) && !truthy(item.item_unavailable ?? false),
     raw: {
       item,
       category: {
