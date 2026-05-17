@@ -433,12 +433,14 @@ async function findMenuRecipe(
       from kmrs_menu_items kmi
       join kmrs_menu_recipe_links link on link.kmrs_menu_item_id = kmi.id
       join recipes r on r.id = link.recipe_id
+      join recipe_versions rv on rv.id = link.active_recipe_version_id
       where kmi.organization_id = $1
         and kmi.kmrs_item_id = $2
         and kmi.location_id = $3
         and kmi.is_available = true
         and link.status = 'active'
         and link.active_recipe_version_id is not null
+        and rv.status = 'active'
       order by link.updated_at desc
       limit 1
     `,

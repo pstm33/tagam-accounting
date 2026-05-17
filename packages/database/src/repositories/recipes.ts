@@ -19,7 +19,7 @@ export async function listRecipeVersions(
   organizationId: string,
   options: { status?: string; limit?: number } = {},
 ): Promise<RecipeVersionRecord[]> {
-  const limit = Math.min(options.limit ?? 50, 200);
+  const limit = Math.min(options.limit ?? 50, 500);
   const status = options.status?.trim();
   const params: unknown[] = [organizationId, limit];
   const statusClause = status ? "and rv.status = $3" : "";

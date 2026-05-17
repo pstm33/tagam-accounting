@@ -668,6 +668,32 @@ export function renderDashboard(): string {
       }) || state.connections[0] || null;
     }
 
+    function recipeStatusLabel(status) {
+      if (status === "draft") {
+        return "черновик";
+      }
+
+      if (status === "archived") {
+        return "архив";
+      }
+
+      return status;
+    }
+
+    function recipeLabel(version) {
+      const suffix = version.status === "active" ? "" : " (" + recipeStatusLabel(version.status) + ")";
+      return version.recipeName + " / " + version.versionCode + suffix;
+    }
+
+    function findSuggestedRecipe(item) {
+      const itemName = text(item.name).trim().toLocaleLowerCase("ru-RU");
+      return state.recipes.find(function (version) {
+        return version.status === "active" && version.recipeName.trim().toLocaleLowerCase("ru-RU") === itemName;
+      }) || state.recipes.find(function (version) {
+        return version.recipeName.trim().toLocaleLowerCase("ru-RU") === itemName;
+      }) || null;
+    }
+
     function applyKmrsConnectionScope(connection) {
       if (!connection) {
         state.kmrsBaseUrl = normalizeKmrsBaseUrl(state.kmrsBaseUrl);
@@ -925,10 +951,11 @@ export function renderDashboard(): string {
         for (const version of state.recipes) {
           const option = document.createElement("option");
           option.value = version.recipeVersionId;
-          option.textContent = version.recipeName + " / " + version.versionCode;
+          option.textContent = recipeLabel(version);
           select.appendChild(option);
         }
-        select.value = item.activeRecipeVersionId || "";
+        const suggestedRecipe = findSuggestedRecipe(item);
+        select.value = item.activeRecipeVersionId || (suggestedRecipe ? suggestedRecipe.recipeVersionId : "");
         recipe.appendChild(select);
 
         const actions = document.createElement("td");
@@ -974,13 +1001,13 @@ export function renderDashboard(): string {
         const org = encodeURIComponent(state.summary.organization.id);
         const location = encodeURIComponent(currentLocationId());
         const headers = authHeaders();
-        const result = await Promise.all([
-          fetchJson("/v1/kmrs/connections?organizationId=" + org + "&locationId=" + location, { headers: headers }),
-          fetchJson("/v1/kmrs/menu-items?organizationId=" + org + "&locationId=" + location + "&limit=300", { headers: headers })
-        ]);
-        state.connections = result[0].data;
+        const connections = await fetchJson("/v1/kmrs/connections?organizationId=" + org + "&locationId=" + location, { headers: headers });
+        state.connections = connections.data;
         applyKmrsConnectionScope(currentKmrsConnection());
-        state.kmrsItems = result[1].data;
+        const connection = currentKmrsConnection();
+        const connectionQuery = connection ? "&kmrsConnectionId=" + encodeURIComponent(connection.id) : "";
+        const menu = await fetchJson("/v1/kmrs/menu-items?organizationId=" + org + "&locationId=" + location + connectionQuery + "&limit=500", { headers: headers });
+        state.kmrsItems = menu.data;
         setKmrsBadge(state.kmrsItems.length + " блюд", "ok");
         setNotice("Загружено " + state.kmrsItems.length + " блюд KMRS.", false);
         renderKmrsMenu();
@@ -990,6 +1017,12 @@ export function renderDashboard(): string {
       } finally {
         setBusy(false);
       }
+    }
+
+    async function refreshRecipes() {
+      const org = encodeURIComponent(state.summary.organization.id);
+      const result = await fetchJson("/v1/recipes?organizationId=" + org + "&limit=500");
+      state.recipes = result.data;
     }
 
     async function importMenu() {
@@ -1015,7 +1048,8 @@ export function renderDashboard(): string {
             currencyCode: state.summary.organization.defaultCurrency
           })
         });
-        setNotice("Импортировано " + response.data.importedCount + " позиций.", false);
+        await refreshRecipes();
+        setNotice("Импортировано " + response.data.importedCount + " позиций, черновиков техкарт создано " + response.data.recipeDraftsCreated + ".", false);
         await refreshKmrs();
       } catch (error) {
         setKmrsBadge("Ошибка", "bad");
@@ -1138,7 +1172,7 @@ export function renderDashboard(): string {
         };
         const result = await Promise.all([
           fetchJson("/v1/catalog?organizationId=" + org),
-          fetchJson("/v1/recipes?organizationId=" + org + "&status=active&limit=200"),
+          fetchJson("/v1/recipes?organizationId=" + org + "&limit=500"),
           fetchJson("/v1/recipes/" + recipeId + "?organizationId=" + org),
           fetchJson("/v1/inventory/summary?organizationId=" + org),
           fetchJson("/v1/kmrs/orders/preview-writeoff", {

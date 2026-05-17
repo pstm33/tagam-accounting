@@ -26,6 +26,9 @@ export type KmrsMenuImportResult = {
   syncRunId: string;
   importedCount: number;
   skippedCount: number;
+  recipeDraftsCreated: number;
+  recipeDraftsUpdated: number;
+  recipeDraftsSkipped: number;
 };
 
 export type KmrsImportedMenuItemRecord = {
@@ -117,6 +120,9 @@ export async function importKmrsMenuSnapshot(
   );
   const syncRunId = getId(syncRun.rows[0], "KMRS sync run");
   let importedCount = 0;
+  let recipeDraftsCreated = 0;
+  let recipeDraftsUpdated = 0;
+  let recipeDraftsSkipped = 0;
 
   try {
     for (const item of validItems) {
@@ -166,6 +172,11 @@ export async function importKmrsMenuSnapshot(
       importedCount += 1;
     }
 
+    const draftResult = await ensureRecipeDraftsForKmrsItems(pool, input.organizationId, validItems);
+    recipeDraftsCreated = draftResult.createdCount;
+    recipeDraftsUpdated = draftResult.updatedCount;
+    recipeDraftsSkipped = draftResult.skippedCount;
+
     await pool.query(
       `
         update kmrs_sync_runs
@@ -180,6 +191,9 @@ export async function importKmrsMenuSnapshot(
         importedCount,
         JSON.stringify({
           skippedCount: input.items.length - validItems.length,
+          recipeDraftsCreated,
+          recipeDraftsUpdated,
+          recipeDraftsSkipped,
         }),
         syncRunId,
       ],
@@ -205,7 +219,121 @@ export async function importKmrsMenuSnapshot(
     syncRunId,
     importedCount,
     skippedCount: input.items.length - validItems.length,
+    recipeDraftsCreated,
+    recipeDraftsUpdated,
+    recipeDraftsSkipped,
   };
+}
+
+async function ensureRecipeDraftsForKmrsItems(
+  pool: DatabasePool,
+  organizationId: string,
+  items: KmrsMenuImportItem[],
+): Promise<{ createdCount: number; updatedCount: number; skippedCount: number }> {
+  const unitResult = await pool.query<IdRow>(
+    `
+      select id
+      from units
+      where organization_id = $1
+        and code = 'pcs'
+      limit 1
+    `,
+    [organizationId],
+  );
+  const yieldUnitId = getId(unitResult.rows[0], "pcs unit");
+  const seenNames = new Set<string>();
+  let createdCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+
+  for (const item of items) {
+    const name = item.name.trim();
+    const normalizedName = name.toLocaleLowerCase("ru-RU");
+
+    if (!name || seenNames.has(normalizedName)) {
+      skippedCount += 1;
+      continue;
+    }
+
+    seenNames.add(normalizedName);
+    const recipe = await pool.query<IdRow>(
+      `
+        insert into recipes (
+          organization_id,
+          name,
+          recipe_type
+        )
+        values ($1, $2, 'menu_item')
+        on conflict (organization_id, name)
+        do update set
+          is_active = true,
+          updated_at = recipes.updated_at
+        returning id
+      `,
+      [organizationId, name],
+    );
+    const recipeId = getId(recipe.rows[0], "recipe");
+    const insertedVersion = await pool.query<IdRow>(
+      `
+        insert into recipe_versions (
+          recipe_id,
+          version_code,
+          status,
+          yield_quantity,
+          yield_unit_id,
+          servings,
+          target_food_cost_percent,
+          menu_price,
+          currency,
+          instructions
+        )
+        values ($1, 'v1', 'draft', 1, $2, 1, 32, $3, $4, $5)
+        on conflict (recipe_id, version_code)
+        do nothing
+        returning id
+      `,
+      [
+        recipeId,
+        yieldUnitId,
+        item.price ?? null,
+        normalizeCurrency(item.currency),
+        buildKmrsDraftInstructions(item),
+      ],
+    );
+
+    if (insertedVersion.rows[0]) {
+      createdCount += 1;
+      continue;
+    }
+
+    const updatedVersion = await pool.query(
+      `
+        update recipe_versions
+        set
+          menu_price = coalesce($2, menu_price),
+          currency = coalesce($3, currency),
+          instructions = coalesce(nullif($4, ''), instructions),
+          updated_at = now()
+        where recipe_id = $1
+          and version_code = 'v1'
+          and status = 'draft'
+      `,
+      [
+        recipeId,
+        item.price ?? null,
+        normalizeCurrency(item.currency),
+        buildKmrsDraftInstructions(item),
+      ],
+    );
+
+    if ((updatedVersion.rowCount ?? 0) > 0) {
+      updatedCount += 1;
+    } else {
+      skippedCount += 1;
+    }
+  }
+
+  return { createdCount, updatedCount, skippedCount };
 }
 
 export async function listKmrsImportedMenuItems(
@@ -540,6 +668,21 @@ function getId(row: IdRow | undefined, label: string): string {
   }
 
   return row.id;
+}
+
+function normalizeCurrency(currency: string | undefined): string {
+  const value = currency?.trim().toUpperCase();
+  return value && value.length === 3 ? value : "TMT";
+}
+
+function buildKmrsDraftInstructions(item: KmrsMenuImportItem): string {
+  const description = item.description?.trim();
+
+  if (description) {
+    return `Imported from KMRS menu. Description: ${description}`;
+  }
+
+  return "Imported from KMRS menu. Add ingredients, processing losses, and preparation steps before activation.";
 }
 
 function getLink(row: KmrsMenuRecipeLinkRecord | undefined): KmrsMenuRecipeLinkRecord {
