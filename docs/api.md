@@ -130,3 +130,37 @@ Query params:
 
 - `organizationId`
 - `limit`
+
+### `POST /v1/kmrs/orders/preview-writeoff`
+
+Calculates the theoretical stock write-off for a KMRS sale without changing inventory. The endpoint maps KMRS menu item IDs to active recipe versions, applies recipe yield chains, checks available stock, and returns expected ingredient quantities and cost.
+
+Required body:
+
+- `organizationId` or `x-organization-id`
+- `locationId`
+- `lines`
+
+Example body:
+
+```json
+{
+  "organizationId": "37a6eab3-57b5-44c3-a772-d288ac2fa103",
+  "locationId": "3c5e4dfc-c6f8-4b99-a6a8-d611e955fd27",
+  "kmrsOrderId": "demo-order-1001",
+  "lines": [
+    {
+      "kmrsItemId": "demo-classic-burger",
+      "quantity": 2,
+      "salePrice": 45,
+      "currency": "TMT"
+    }
+  ]
+}
+```
+
+### `POST /v1/kmrs/orders/commit-writeoff`
+
+Commits a KMRS sale write-off. It creates a KMRS order record, order lines, an `order_writeoffs` document, FIFO-style negative `stock_movements`, `order_writeoff_lines`, and decreases the matching `stock_lots.current_quantity`.
+
+The endpoint refuses to commit when recipe costing is incomplete, stock is short, or the same KMRS order already has a committed write-off.

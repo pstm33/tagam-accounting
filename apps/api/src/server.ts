@@ -1,6 +1,7 @@
 import cors from "@fastify/cors";
 import {
   bootstrapOrganization,
+  commitKmrsSaleWriteoff,
   createDatabasePool,
   createProduct,
   getDemoSummary,
@@ -10,6 +11,7 @@ import {
   listKmrsSyncRuns,
   listOrganizations,
   listProcessingMethods,
+  previewKmrsSaleWriteoff,
   listProducts,
   listProductCategories,
   listRecipeVersions,
@@ -76,6 +78,24 @@ type KmrsSyncRunsQuery = {
   limit?: string;
 };
 
+type KmrsWriteoffBody = {
+  organizationId?: string;
+  locationId?: string;
+  kmrsOrderId?: string;
+  orderedAt?: string;
+  status?: string;
+  paymentStatus?: string;
+  lines?: Array<{
+    kmrsItemId?: string;
+    name?: string;
+    quantity?: number;
+    salePrice?: number;
+    currency?: string;
+    rawPayload?: unknown;
+  }>;
+  rawPayload?: unknown;
+};
+
 export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
   const app = Fastify({
     logger: true,
@@ -89,8 +109,21 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
   app.setErrorHandler((error, _request, reply) => {
     const message = error instanceof Error ? error.message : "Unknown error";
 
-    if (message.includes("organizationId is required")) {
+    if (
+      message.includes("organizationId is required") ||
+      message.includes("locationId is required") ||
+      message.includes("lines[") ||
+      message.includes("lines must")
+    ) {
       return reply.code(400).send({ error: message });
+    }
+
+    if (
+      message.includes("Cannot commit writeoff") ||
+      message.includes("already has a committed writeoff") ||
+      message.startsWith("Not enough stock")
+    ) {
+      return reply.code(409).send({ error: message });
     }
 
     app.log.error(error);
@@ -255,6 +288,18 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     return { data: rows };
   });
 
+  app.post<{ Body: KmrsWriteoffBody }>("/v1/kmrs/orders/preview-writeoff", async (request) => {
+    const input = parseKmrsWriteoffBody(request);
+    const preview = await previewKmrsSaleWriteoff(pool, input);
+    return { data: preview };
+  });
+
+  app.post<{ Body: KmrsWriteoffBody }>("/v1/kmrs/orders/commit-writeoff", async (request, reply) => {
+    const input = parseKmrsWriteoffBody(request);
+    const committed = await commitKmrsSaleWriteoff(pool, input);
+    return reply.code(201).send({ data: committed });
+  });
+
   return app;
 }
 
@@ -281,6 +326,37 @@ function parseLimit(value: string | undefined, fallback: number): number {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseKmrsWriteoffBody(request: FastifyRequest<{ Body: KmrsWriteoffBody }>) {
+  const body = request.body ?? {};
+  const organizationId = body.organizationId ?? getHeaderOrganizationId(request);
+
+  if (!organizationId) {
+    throw new Error("organizationId is required");
+  }
+
+  if (!body.locationId) {
+    throw new Error("locationId is required");
+  }
+
+  return {
+    organizationId,
+    locationId: body.locationId,
+    ...(body.kmrsOrderId !== undefined ? { kmrsOrderId: body.kmrsOrderId } : {}),
+    ...(body.orderedAt !== undefined ? { orderedAt: body.orderedAt } : {}),
+    ...(body.status !== undefined ? { status: body.status } : {}),
+    ...(body.paymentStatus !== undefined ? { paymentStatus: body.paymentStatus } : {}),
+    lines: (body.lines ?? []).map((line) => ({
+      kmrsItemId: line.kmrsItemId ?? "",
+      quantity: line.quantity ?? 0,
+      ...(line.name !== undefined ? { name: line.name } : {}),
+      ...(line.salePrice !== undefined ? { salePrice: line.salePrice } : {}),
+      ...(line.currency !== undefined ? { currency: line.currency } : {}),
+      ...(line.rawPayload !== undefined ? { rawPayload: line.rawPayload } : {}),
+    })),
+    ...(body.rawPayload !== undefined ? { rawPayload: body.rawPayload } : {}),
+  };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

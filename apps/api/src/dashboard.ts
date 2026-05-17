@@ -8,18 +8,18 @@ export function renderDashboard(): string {
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f4ef;
+      --bg: #f7f8fb;
       --panel: #ffffff;
-      --ink: #1f2933;
+      --ink: #172033;
       --muted: #667085;
-      --line: #ddd6c8;
+      --line: #d7dde8;
       --teal: #0f766e;
-      --blue: #1d4ed8;
+      --blue: #2563eb;
       --amber: #b45309;
       --red: #b91c1c;
-      --green-soft: #dff4ed;
-      --blue-soft: #e4ecff;
-      --amber-soft: #fff0d3;
+      --green-soft: #ddf7ef;
+      --blue-soft: #e8f0ff;
+      --amber-soft: #fff4db;
       --red-soft: #ffe4e6;
     }
 
@@ -104,7 +104,7 @@ export function renderDashboard(): string {
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 16px;
-      box-shadow: 0 1px 2px rgba(31, 41, 51, .04);
+      box-shadow: 0 1px 2px rgba(23, 32, 51, .04);
     }
 
     .metric .label {
@@ -153,7 +153,7 @@ export function renderDashboard(): string {
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: .02em;
-      background: #fbfaf7;
+      background: #f9fafc;
     }
 
     .num {
@@ -183,31 +183,31 @@ export function renderDashboard(): string {
       color: var(--red);
     }
 
-    .recipe-kpis {
+    .stats {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 12px 0 16px;
     }
 
-    .mini {
-      background: #fbfaf7;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
+    .stat {
+      min-width: 0;
+      border-top: 3px solid var(--line);
+      padding-top: 10px;
     }
 
-    .mini span {
+    .stat span {
       display: block;
       color: var(--muted);
       font-size: 12px;
     }
 
-    .mini strong {
+    .stat strong {
       display: block;
       margin-top: 5px;
       font-size: 20px;
       font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
     }
 
     .muted {
@@ -226,7 +226,7 @@ export function renderDashboard(): string {
       padding: 7px 10px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #fbfaf7;
+      background: #f9fafc;
       color: var(--ink);
       font-size: 13px;
     }
@@ -252,7 +252,7 @@ export function renderDashboard(): string {
       }
 
       .metrics,
-      .recipe-kpis {
+      .stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
@@ -263,7 +263,7 @@ export function renderDashboard(): string {
       }
 
       .metrics,
-      .recipe-kpis {
+      .stats {
         grid-template-columns: 1fr;
       }
 
@@ -299,8 +299,13 @@ export function renderDashboard(): string {
     </section>
 
     <section class="card" style="margin-top:16px">
+      <h2>Списание продажи из KMRS</h2>
+      <div id="writeoff"></div>
+    </section>
+
+    <section class="card" style="margin-top:16px">
       <h2>API</h2>
-      <p>Демо-данные открыты без авторизации, чтобы быстро проверить модель. Боевой модуль позже должен получить права доступа от KMRS.</p>
+      <p>Демо-данные открыты без авторизации. Боевой модуль позже должен получить права доступа от KMRS.</p>
       <div class="links" id="links"></div>
     </section>
   </main>
@@ -343,8 +348,8 @@ export function renderDashboard(): string {
       return tableEl;
     }
 
-    async function fetchJson(url) {
-      const response = await fetch(url);
+    async function fetchJson(url, options = undefined) {
+      const response = await fetch(url, options);
       if (!response.ok) {
         throw new Error(url + " -> " + response.status);
       }
@@ -370,6 +375,15 @@ export function renderDashboard(): string {
       }
     }
 
+    function stat(label, value) {
+      const el = document.createElement("div");
+      el.className = "stat";
+      el.innerHTML = '<span></span><strong></strong>';
+      el.querySelector("span").textContent = label;
+      el.querySelector("strong").textContent = value;
+      return el;
+    }
+
     function renderRecipe(recipe) {
       const root = document.getElementById("recipe");
       root.replaceChildren();
@@ -384,21 +398,11 @@ export function renderDashboard(): string {
       root.appendChild(title);
 
       const kpis = document.createElement("div");
-      kpis.className = "recipe-kpis";
-      const kpiItems = [
-        ["Себестоимость", money.format(recipe.totalCost) + " " + recipe.currency],
-        ["Food cost", money.format(recipe.foodCostPercent) + "%"],
-        ["Цена в меню", money.format(Number(recipe.menuPrice)) + " " + recipe.currency],
-        ["Рекоменд. цена", money.format(recipe.recommendedMenuPrice) + " " + recipe.currency],
-      ];
-      for (const [label, value] of kpiItems) {
-        const mini = document.createElement("div");
-        mini.className = "mini";
-        mini.innerHTML = '<span></span><strong></strong>';
-        mini.querySelector("span").textContent = label;
-        mini.querySelector("strong").textContent = value;
-        kpis.appendChild(mini);
-      }
+      kpis.className = "stats";
+      kpis.appendChild(stat("Себестоимость", money.format(recipe.totalCost) + " " + recipe.currency));
+      kpis.appendChild(stat("Food cost", money.format(recipe.foodCostPercent) + "%"));
+      kpis.appendChild(stat("Цена в меню", money.format(Number(recipe.menuPrice)) + " " + recipe.currency));
+      kpis.appendChild(stat("Рекоменд. цена", money.format(recipe.recommendedMenuPrice) + " " + recipe.currency));
       root.appendChild(kpis);
 
       const rows = recipe.lines.map((line) => {
@@ -429,6 +433,39 @@ export function renderDashboard(): string {
       root.appendChild(table(["Продукт", "Кол-во", "Сумма"], body));
     }
 
+    function renderWriteoff(writeoff) {
+      const root = document.getElementById("writeoff");
+      root.replaceChildren();
+
+      const kpis = document.createElement("div");
+      kpis.className = "stats";
+      kpis.appendChild(stat("Сумма продажи", money.format(writeoff.totals.saleTotal) + " " + writeoff.totals.currency));
+      kpis.appendChild(stat("Себестоимость", money.format(writeoff.totals.theoreticalCost) + " " + writeoff.totals.currency));
+      kpis.appendChild(stat("Food cost", money.format(writeoff.totals.foodCostPercent) + "%"));
+      kpis.appendChild(stat("Маржа", money.format(writeoff.totals.grossMargin) + " " + writeoff.totals.currency));
+      root.appendChild(kpis);
+
+      const note = document.createElement("p");
+      note.textContent = "Превью: 2 x Classic Burger. Остатки не изменяются до commit-writeoff.";
+      root.appendChild(note);
+
+      const rows = writeoff.requirements.map((item) => {
+        const status = document.createElement("td");
+        const badge = document.createElement("span");
+        badge.className = item.availabilityStatus === "ok" ? "pill" : "pill bad";
+        badge.textContent = item.availabilityStatus === "ok" ? "хватает" : "дефицит";
+        status.appendChild(badge);
+        return [
+          item.productName,
+          qty.format(item.quantity) + " " + item.unitCode,
+          money.format(item.estimatedCost) + " " + item.currency,
+          qty.format(item.availableQuantity) + " " + item.unitCode,
+          status,
+        ];
+      });
+      root.appendChild(table(["Продукт", "Списание", "Себестоимость", "На складе", "Статус"], rows));
+    }
+
     function renderLinks(summary) {
       const root = document.getElementById("links");
       const org = encodeURIComponent(summary.organization.id);
@@ -440,6 +477,7 @@ export function renderDashboard(): string {
         ["/v1/products?organizationId=" + org, "products"],
         ["/v1/inventory/summary?organizationId=" + org, "inventory"],
         ["/v1/recipes/" + recipe + "?organizationId=" + org, "recipe cost"],
+        ["/v1/kmrs/sync-runs?organizationId=" + org, "sync runs"],
       ];
       root.replaceChildren();
       for (const [href, label] of links) {
@@ -461,12 +499,31 @@ export function renderDashboard(): string {
 
         const org = encodeURIComponent(summary.organization.id);
         const recipeId = encodeURIComponent(summary.activeRecipeVersionId);
-        const [recipe, inventory] = await Promise.all([
+        const writeoffBody = {
+          organizationId: summary.organization.id,
+          locationId: summary.primaryLocation.id,
+          kmrsOrderId: "demo-preview-order",
+          lines: [
+            {
+              kmrsItemId: "demo-classic-burger",
+              quantity: 2,
+              salePrice: 45,
+              currency: summary.organization.defaultCurrency,
+            },
+          ],
+        };
+        const [recipe, inventory, writeoff] = await Promise.all([
           fetchJson("/v1/recipes/" + recipeId + "?organizationId=" + org),
           fetchJson("/v1/inventory/summary?organizationId=" + org),
+          fetchJson("/v1/kmrs/orders/preview-writeoff", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(writeoffBody),
+          }),
         ]);
         renderRecipe(recipe.data);
         renderInventory(inventory.data, summary.organization.defaultCurrency);
+        renderWriteoff(writeoff.data);
         status.textContent = "Online";
       } catch (error) {
         status.textContent = "Ошибка";
