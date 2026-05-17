@@ -557,6 +557,7 @@ export function renderDashboard(): string {
   </main>
 
   <script>
+    const DEFAULT_KMRS_BASE_URL = "https://tagam.delivery";
     const money = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
     const qty = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 });
     const dateTime = new Intl.DateTimeFormat("ru-RU", {
@@ -572,13 +573,29 @@ export function renderDashboard(): string {
       kmrsItems: [],
       connections: [],
       restaurantSlug: localStorage.getItem("tagamAccountingRestaurantSlug") || "7sky",
-      kmrsBaseUrl: localStorage.getItem("tagamAccountingKmrsBaseUrl") || "https://tagam.delivery",
+      kmrsBaseUrl: normalizeKmrsBaseUrl(localStorage.getItem("tagamAccountingKmrsBaseUrl") || DEFAULT_KMRS_BASE_URL),
       selectedLocationId: localStorage.getItem("tagamAccountingLocationId") || "",
       busy: false
     };
 
     function text(value) {
       return value === null || value === undefined ? "" : String(value);
+    }
+
+    function normalizeKmrsBaseUrl(value) {
+      const raw = text(value).trim().replace(/\\/+$/, "");
+      const candidate = /^https?:\\/\\//i.test(raw) ? raw : raw.includes(".") ? "https://" + raw : "";
+
+      if (!candidate) {
+        return DEFAULT_KMRS_BASE_URL;
+      }
+
+      try {
+        new URL(candidate);
+        return candidate.replace(/\\/+$/, "");
+      } catch (error) {
+        return DEFAULT_KMRS_BASE_URL;
+      }
     }
 
     function cell(value, className) {
@@ -637,6 +654,34 @@ export function renderDashboard(): string {
 
     function currentLocationId() {
       return document.getElementById("kmrs-location").value || state.selectedLocationId || state.summary.primaryLocation.id;
+    }
+
+    function currentKmrsConnection() {
+      const locationId = currentLocationId();
+      const baseUrl = normalizeKmrsBaseUrl(state.kmrsBaseUrl);
+      return state.connections.find(function (connection) {
+        return connection.locationId === locationId &&
+          connection.restaurantSlug === state.restaurantSlug &&
+          normalizeKmrsBaseUrl(connection.baseUrl) === baseUrl;
+      }) || state.connections.find(function (connection) {
+        return connection.locationId === locationId;
+      }) || state.connections[0] || null;
+    }
+
+    function applyKmrsConnectionScope(connection) {
+      if (!connection) {
+        state.kmrsBaseUrl = normalizeKmrsBaseUrl(state.kmrsBaseUrl);
+        localStorage.setItem("tagamAccountingKmrsBaseUrl", state.kmrsBaseUrl);
+        return;
+      }
+
+      const nextSlug = text(connection.restaurantSlug || state.restaurantSlug).trim() || state.restaurantSlug;
+      const nextBaseUrl = normalizeKmrsBaseUrl(connection.baseUrl || state.kmrsBaseUrl);
+      state.restaurantSlug = nextSlug;
+      state.kmrsBaseUrl = nextBaseUrl;
+      localStorage.setItem("tagamAccountingRestaurantSlug", state.restaurantSlug);
+      localStorage.setItem("tagamAccountingKmrsBaseUrl", state.kmrsBaseUrl);
+      renderKmrsControls();
     }
 
     function setNotice(message, isError) {
@@ -794,6 +839,8 @@ export function renderDashboard(): string {
     }
 
     function renderKmrsControls() {
+      state.kmrsBaseUrl = normalizeKmrsBaseUrl(state.kmrsBaseUrl);
+      localStorage.setItem("tagamAccountingKmrsBaseUrl", state.kmrsBaseUrl);
       document.getElementById("kmrs-slug").value = state.restaurantSlug;
       document.getElementById("kmrs-base-url").value = state.kmrsBaseUrl;
       const select = document.getElementById("kmrs-location");
@@ -932,6 +979,7 @@ export function renderDashboard(): string {
           fetchJson("/v1/kmrs/menu-items?organizationId=" + org + "&locationId=" + location + "&limit=300", { headers: headers })
         ]);
         state.connections = result[0].data;
+        applyKmrsConnectionScope(currentKmrsConnection());
         state.kmrsItems = result[1].data;
         setKmrsBadge(state.kmrsItems.length + " блюд", "ok");
         setNotice("Загружено " + state.kmrsItems.length + " блюд KMRS.", false);
@@ -950,7 +998,8 @@ export function renderDashboard(): string {
 
       try {
         const slug = document.getElementById("kmrs-slug").value.trim();
-        const baseUrl = document.getElementById("kmrs-base-url").value.trim();
+        const baseUrl = normalizeKmrsBaseUrl(document.getElementById("kmrs-base-url").value);
+        document.getElementById("kmrs-base-url").value = baseUrl;
         state.restaurantSlug = slug;
         state.kmrsBaseUrl = baseUrl;
         localStorage.setItem("tagamAccountingRestaurantSlug", slug);
@@ -1026,7 +1075,8 @@ export function renderDashboard(): string {
     function wireEvents() {
       document.getElementById("save-key").addEventListener("click", function () {
         state.restaurantSlug = document.getElementById("kmrs-slug").value.trim();
-        state.kmrsBaseUrl = document.getElementById("kmrs-base-url").value.trim();
+        state.kmrsBaseUrl = normalizeKmrsBaseUrl(document.getElementById("kmrs-base-url").value);
+        document.getElementById("kmrs-base-url").value = state.kmrsBaseUrl;
         state.selectedLocationId = currentLocationId();
         localStorage.setItem("tagamAccountingRestaurantSlug", state.restaurantSlug);
         localStorage.setItem("tagamAccountingKmrsBaseUrl", state.kmrsBaseUrl);
