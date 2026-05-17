@@ -1,0 +1,44 @@
+name: Bootstrap Source
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    if: ${{ github.event.head_commit.message == 'Bootstrap source from deployed archive' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "http://demo-accounting.tagam.delivery/.well-known/acme-challenge/tagam-accounting-source.zip" -o /tmp/tagam-accounting-source.zip
+
+      - name: Rehydrate source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -o /tmp/tagam-accounting-source.zip -d .
+          git restore --source=HEAD -- .github/workflows || true
+
+      - name: Commit unpacked source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "tagam-accounting-bootstrap"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Update accounting source from deployed archive [bootstrap-source]"
+          git push
