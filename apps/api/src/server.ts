@@ -3,14 +3,22 @@ import {
   bootstrapOrganization,
   createDatabasePool,
   createProduct,
+  getDemoSummary,
   getInventorySummary,
+  getRecipeCostDetail,
+  listLocations,
   listKmrsSyncRuns,
+  listOrganizations,
+  listProcessingMethods,
   listProducts,
+  listProductCategories,
   listRecipeVersions,
+  listUnits,
 } from "@tagam-accounting/database";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { renderDashboard } from "./dashboard.js";
 
 export type ApiBuildOptions = {
   databaseUrl?: string;
@@ -37,6 +45,15 @@ type ListRecipesQuery = {
   organizationId?: string;
   status?: string;
   limit?: string;
+};
+
+type RecipeDetailParams = {
+  recipeVersionId: string;
+};
+
+type RecipeDetailQuery = {
+  organizationId?: string;
+  locationId?: string;
 };
 
 type InventorySummaryQuery = {
@@ -96,6 +113,25 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     };
   });
 
+  app.get("/", async (_request, reply) => {
+    return reply.type("text/html; charset=utf-8").send(renderDashboard());
+  });
+
+  app.get("/v1/demo", async (_request, reply) => {
+    const summary = await getDemoSummary(pool);
+
+    if (!summary) {
+      return reply.code(404).send({ error: "Demo organization has not been seeded yet" });
+    }
+
+    return { data: summary };
+  });
+
+  app.get("/v1/organizations", async () => {
+    const organizations = await listOrganizations(pool);
+    return { data: organizations };
+  });
+
   app.post<{ Body: BootstrapBody }>("/v1/bootstrap", async (request, reply) => {
     const body = request.body;
 
@@ -113,6 +149,25 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     });
 
     return reply.code(201).send({ data: result });
+  });
+
+  app.get<{ Querystring: { organizationId?: string } }>("/v1/catalog", async (request) => {
+    const organizationId = getOrganizationId(request);
+    const [locations, units, categories, processingMethods] = await Promise.all([
+      listLocations(pool, organizationId),
+      listUnits(pool, organizationId),
+      listProductCategories(pool, organizationId),
+      listProcessingMethods(pool, organizationId),
+    ]);
+
+    return {
+      data: {
+        locations,
+        units,
+        categories,
+        processingMethods,
+      },
+    };
   });
 
   app.get<{ Querystring: ListProductsQuery }>("/v1/products", async (request) => {
@@ -164,6 +219,22 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
 
     return { data: recipes };
   });
+
+  app.get<{ Params: RecipeDetailParams; Querystring: RecipeDetailQuery }>(
+    "/v1/recipes/:recipeVersionId",
+    async (request, reply) => {
+      const organizationId = getOrganizationId(request);
+      const detail = await getRecipeCostDetail(pool, organizationId, request.params.recipeVersionId, {
+        ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+      });
+
+      if (!detail) {
+        return reply.code(404).send({ error: "recipeVersion was not found" });
+      }
+
+      return { data: detail };
+    },
+  );
 
   app.get<{ Querystring: InventorySummaryQuery }>("/v1/inventory/summary", async (request) => {
     const organizationId = getOrganizationId(request);

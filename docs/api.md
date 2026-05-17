@@ -30,6 +30,18 @@ API_PORT=4010
 
 Checks API and database connectivity.
 
+### `GET /`
+
+Serves the lightweight demo dashboard. It loads `/v1/demo`, inventory, and recipe costing from the API and is intended as the first smoke test for the online module.
+
+### `GET /v1/demo`
+
+Returns the seeded demo organization, primary location, first active recipe version, and small health counters. This is useful for opening the demo API without manually looking up IDs.
+
+### `GET /v1/organizations`
+
+Lists organizations with location/product/recipe counters.
+
 ### `POST /v1/bootstrap`
 
 Creates the first organization, restaurant location, and default units.
@@ -45,6 +57,19 @@ Optional body:
 - `timezone`
 - `locationName`
 - `kmrsMerchantId`
+
+### `GET /v1/catalog`
+
+Query params:
+
+- `organizationId`
+
+Returns:
+
+- `locations`
+- `units`
+- `categories`
+- `processingMethods`
 
 ### `GET /v1/products`
 
@@ -81,6 +106,15 @@ Query params:
 - `organizationId`
 - `status`
 - `limit`
+
+### `GET /v1/recipes/:recipeVersionId`
+
+Query params:
+
+- `organizationId`
+- `locationId`
+
+Returns the recipe version with ingredient lines and live average-cost calculations from current stock lots. The response includes yield loss/absorption effects, stock input quantity, line cost, total cost, food-cost percent, gross margin, and recommended menu price when enough data exists.
 
 ### `GET /v1/inventory/summary`
 
