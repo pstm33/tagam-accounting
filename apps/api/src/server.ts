@@ -29,12 +29,17 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createAuthConfigFromEnv,
+  createWebSessionClearCookieHeader,
+  createWebSessionSetCookieHeader,
   getAccountingPrincipal,
   getBridgeScopeDenial,
   routeRequiresAuth,
   verifyAccountingAuth,
+  verifyWebLogin,
+  verifyWebSession,
 } from "./auth.js";
 import { renderDashboard } from "./dashboard.js";
+import { renderLogin } from "./login.js";
 
 export type ApiBuildOptions = {
   databaseUrl?: string;
@@ -167,6 +172,11 @@ type KmrsPullMenuImportBody = {
   currencyCode?: string;
 };
 
+type LoginBody = {
+  username?: string;
+  password?: string;
+};
+
 export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
   const app = Fastify({
     logger: true,
@@ -241,8 +251,45 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     };
   });
 
-  app.get("/", async (_request, reply) => {
+  app.get("/", async (request, reply) => {
+    const webSession = verifyWebSession(request, authConfig);
+
+    if (!webSession.ok && authConfig.webLogin) {
+      return reply.redirect("/login");
+    }
+
     return reply.type("text/html; charset=utf-8").send(renderDashboard());
+  });
+
+  app.get("/login", async (request, reply) => {
+    const webSession = verifyWebSession(request, authConfig);
+
+    if (webSession.ok) {
+      return reply.redirect("/");
+    }
+
+    return reply.type("text/html; charset=utf-8").send(renderLogin());
+  });
+
+  app.post<{ Body: LoginBody }>("/login", async (request, reply) => {
+    const result = verifyWebLogin(authConfig, {
+      username: request.body?.username,
+      password: request.body?.password,
+    });
+
+    if (!result.ok) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    return reply
+      .header("set-cookie", createWebSessionSetCookieHeader(authConfig))
+      .send({ data: { ok: true } });
+  });
+
+  app.post("/logout", async (_request, reply) => {
+    return reply
+      .header("set-cookie", createWebSessionClearCookieHeader(authConfig))
+      .send({ data: { ok: true } });
   });
 
   app.get("/v1/demo", async (_request, reply) => {

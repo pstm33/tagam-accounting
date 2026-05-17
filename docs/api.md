@@ -25,6 +25,10 @@ API_PORT=4010
 ACCOUNTING_AUTH_MODE=protected
 ACCOUNTING_API_KEYS=kmrs_bridge:CHANGE_ME
 ACCOUNTING_HMAC_SECRETS=
+ACCOUNTING_WEB_USERNAME=admin
+ACCOUNTING_WEB_PASSWORD=CHANGE_ME
+ACCOUNTING_WEB_SESSION_SECRET=CHANGE_ME_RANDOM_32_BYTES
+ACCOUNTING_WEB_PRINCIPAL=kmrs_bridge
 ACCOUNTING_BRIDGE_SCOPES={"kmrs_bridge":{"organizationIds":["org-id"],"locationIds":["location-id"],"restaurantSlugs":["7sky"],"kmrsMerchantIds":["7"],"baseUrls":["https://tagam.delivery"]}}
 ```
 
@@ -38,6 +42,7 @@ Supported auth:
 
 - `x-api-key: <secret>` or `Authorization: Bearer <secret>`
 - HMAC headers: `x-accounting-key-id`, `x-accounting-timestamp`, `x-accounting-signature`
+- Web login at `/login` with a signed `tagam_accounting_session` cookie. `ACCOUNTING_WEB_PRINCIPAL` should point to a scoped bridge principal, usually `kmrs_bridge`.
 
 HMAC signing string:
 

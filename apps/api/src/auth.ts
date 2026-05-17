@@ -9,6 +9,16 @@ export type AccountingAuthConfig = {
   hmacSecrets: Map<string, string>;
   bridgeScopes: Map<string, BridgePrincipalScope>;
   timestampToleranceSeconds: number;
+  webLogin?: WebLoginConfig;
+};
+
+export type WebLoginConfig = {
+  username: string;
+  password: string;
+  sessionSecret: string;
+  principal: string;
+  maxAgeSeconds: number;
+  cookieSecure: boolean;
 };
 
 export type BridgePrincipalScope = {
@@ -38,7 +48,7 @@ export type AuthResult =
   | {
       ok: true;
       principal: string;
-      method: "api_key" | "hmac";
+      method: "api_key" | "hmac" | "web_session";
     }
   | {
       ok: false;
@@ -59,10 +69,15 @@ const protectedRoutes = [
 
 const publicRoutes = [
   { method: "GET", path: "/" },
+  { method: "GET", path: "/login" },
+  { method: "POST", path: "/login" },
+  { method: "POST", path: "/logout" },
   { method: "GET", path: "/health" },
   { method: "GET", path: "/v1/demo" },
   { method: "POST", path: "/v1/kmrs/orders/preview-writeoff" },
 ];
+
+const webSessionCookieName = "tagam_accounting_session";
 
 export function createAuthConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AccountingAuthConfig {
   const apiKeys = parseSecretList(env.ACCOUNTING_API_KEYS);
@@ -71,6 +86,7 @@ export function createAuthConfigFromEnv(env: NodeJS.ProcessEnv = process.env): A
   const hasCredentials = apiKeys.size > 0 || hmacSecrets.size > 0;
   const mode = parseAuthMode(env.ACCOUNTING_AUTH_MODE, hasCredentials);
   const timestampToleranceSeconds = Number.parseInt(env.ACCOUNTING_HMAC_TOLERANCE_SECONDS ?? "300", 10);
+  const webLogin = parseWebLoginConfig(env, apiKeys, hmacSecrets);
 
   return {
     mode,
@@ -78,6 +94,7 @@ export function createAuthConfigFromEnv(env: NodeJS.ProcessEnv = process.env): A
     hmacSecrets,
     bridgeScopes,
     timestampToleranceSeconds: Number.isFinite(timestampToleranceSeconds) ? timestampToleranceSeconds : 300,
+    ...(webLogin !== undefined ? { webLogin } : {}),
   };
 }
 
@@ -123,7 +140,103 @@ export function verifyAccountingAuth(request: FastifyRequest, config: Accounting
     return hmacResult;
   }
 
-  return { ok: false, reason: hmacResult.reason || apiKeyResult.reason };
+  const webSessionResult = verifyWebSession(request, config);
+
+  if (webSessionResult.ok) {
+    return webSessionResult;
+  }
+
+  return { ok: false, reason: webSessionResult.reason || hmacResult.reason || apiKeyResult.reason };
+}
+
+export function verifyWebSession(request: FastifyRequest, config: AccountingAuthConfig): AuthResult {
+  if (!config.webLogin) {
+    return { ok: false, reason: "Web login is not configured" };
+  }
+
+  const token = getCookie(request, webSessionCookieName);
+
+  if (!token) {
+    return { ok: false, reason: "Missing web session" };
+  }
+
+  const [principalPart, expiresPart, signature] = token.split(".");
+
+  if (!principalPart || !expiresPart || !signature) {
+    return { ok: false, reason: "Invalid web session" };
+  }
+
+  const expiresAt = Number.parseInt(expiresPart, 10);
+
+  if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) {
+    return { ok: false, reason: "Expired web session" };
+  }
+
+  const principal = base64UrlDecode(principalPart);
+  const signingValue = `${principalPart}.${expiresPart}`;
+  const expected = createHmac("sha256", config.webLogin.sessionSecret).update(signingValue).digest("hex");
+
+  if (!safeEqual(signature, expected)) {
+    return { ok: false, reason: "Invalid web session signature" };
+  }
+
+  if (principal !== config.webLogin.principal) {
+    return { ok: false, reason: "Invalid web session principal" };
+  }
+
+  return { ok: true, principal, method: "web_session" };
+}
+
+export function verifyWebLogin(
+  config: AccountingAuthConfig,
+  input: { username?: string | undefined; password?: string | undefined },
+): AuthResult {
+  if (!config.webLogin) {
+    return { ok: false, reason: "Web login is not configured" };
+  }
+
+  if (!input.username || !input.password) {
+    return { ok: false, reason: "Missing username or password" };
+  }
+
+  if (!safeEqual(input.username, config.webLogin.username) || !safeEqual(input.password, config.webLogin.password)) {
+    return { ok: false, reason: "Invalid username or password" };
+  }
+
+  return { ok: true, principal: config.webLogin.principal, method: "web_session" };
+}
+
+export function createWebSessionSetCookieHeader(config: AccountingAuthConfig): string {
+  if (!config.webLogin) {
+    throw new Error("Web login is not configured");
+  }
+
+  const expiresAt = Date.now() + config.webLogin.maxAgeSeconds * 1000;
+  const principalPart = base64UrlEncode(config.webLogin.principal);
+  const expiresPart = String(expiresAt);
+  const signingValue = `${principalPart}.${expiresPart}`;
+  const signature = createHmac("sha256", config.webLogin.sessionSecret).update(signingValue).digest("hex");
+  const token = `${principalPart}.${expiresPart}.${signature}`;
+
+  return [
+    `${webSessionCookieName}=${token}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${config.webLogin.maxAgeSeconds}`,
+    ...(config.webLogin.cookieSecure ? ["Secure"] : []),
+  ].join("; ");
+}
+
+export function createWebSessionClearCookieHeader(config: AccountingAuthConfig): string {
+  return [
+    `${webSessionCookieName}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+    ...(config.webLogin?.cookieSecure === true ? ["Secure"] : []),
+  ].join("; ");
 }
 
 export function getAccountingPrincipal(request: FastifyRequest): string | undefined {
@@ -175,6 +288,35 @@ function parseAuthMode(value: string | undefined, hasCredentials: boolean): Acco
   }
 
   return hasCredentials ? "protected" : "off";
+}
+
+function parseWebLoginConfig(
+  env: NodeJS.ProcessEnv,
+  apiKeys: Map<string, string>,
+  hmacSecrets: Map<string, string>,
+): WebLoginConfig | undefined {
+  const username = env.ACCOUNTING_WEB_USERNAME?.trim();
+  const password = env.ACCOUNTING_WEB_PASSWORD?.trim();
+  const explicitSessionSecret = env.ACCOUNTING_WEB_SESSION_SECRET?.trim();
+  const fallbackSessionSecret = apiKeys.values().next().value ?? hmacSecrets.values().next().value;
+  const sessionSecret = explicitSessionSecret || fallbackSessionSecret;
+
+  if (!username || !password || !sessionSecret) {
+    return undefined;
+  }
+
+  const maxAgeSeconds = Number.parseInt(env.ACCOUNTING_WEB_SESSION_MAX_AGE_SECONDS ?? "43200", 10);
+  const principal = env.ACCOUNTING_WEB_PRINCIPAL?.trim() || apiKeys.keys().next().value || "web_admin";
+  const cookieSecure = env.ACCOUNTING_WEB_COOKIE_SECURE !== "false";
+
+  return {
+    username,
+    password,
+    sessionSecret,
+    principal,
+    maxAgeSeconds: Number.isFinite(maxAgeSeconds) && maxAgeSeconds > 0 ? maxAgeSeconds : 43_200,
+    cookieSecure,
+  };
 }
 
 function parseBridgeScopes(value: string | undefined): Map<string, BridgePrincipalScope> {
@@ -345,6 +487,31 @@ function getHeader(request: FastifyRequest, name: string): string | undefined {
   return value;
 }
 
+function getCookie(request: FastifyRequest, name: string): string | undefined {
+  const header = getHeader(request, "cookie");
+
+  if (!header) {
+    return undefined;
+  }
+
+  for (const part of header.split(";")) {
+    const separator = part.indexOf("=");
+
+    if (separator === -1) {
+      continue;
+    }
+
+    const key = part.slice(0, separator).trim();
+    const value = part.slice(separator + 1).trim();
+
+    if (key === name) {
+      return decodeURIComponent(value);
+    }
+  }
+
+  return undefined;
+}
+
 function getBearerToken(value: string | undefined): string | undefined {
   if (!value) {
     return undefined;
@@ -390,6 +557,14 @@ function stableStringify(value: unknown): string {
 
 function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value, "utf8").toString("base64url");
+}
+
+function base64UrlDecode(value: string): string {
+  return Buffer.from(value, "base64url").toString("utf8");
 }
 
 function safeEqual(left: string, right: string): boolean {

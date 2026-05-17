@@ -53,6 +53,12 @@ export function renderDashboard(): string {
       border-bottom: 1px solid var(--line);
     }
 
+    .header-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
     h1 {
       margin: 0;
       font-size: 30px;
@@ -221,7 +227,7 @@ export function renderDashboard(): string {
 
     .toolbar {
       display: grid;
-      grid-template-columns: minmax(190px, 1fr) minmax(150px, .75fr) minmax(160px, .8fr) minmax(200px, 1fr) auto auto;
+      grid-template-columns: minmax(220px, 1fr) minmax(150px, .75fr) minmax(180px, .8fr) auto auto;
       gap: 10px;
       align-items: end;
       margin-bottom: 14px;
@@ -438,6 +444,10 @@ export function renderDashboard(): string {
         display: grid;
       }
 
+      .header-actions {
+        justify-content: space-between;
+      }
+
       .metrics,
       .stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -474,7 +484,10 @@ export function renderDashboard(): string {
         <h1>TAGAM Accounting Demo</h1>
         <p id="subtitle">Склад, техкарты, ужарка и себестоимость для ресторанного KMRS.</p>
       </div>
-      <div id="status" class="status">Загрузка</div>
+      <div class="header-actions">
+        <button class="ghost" id="logout" type="button">Выйти</button>
+        <div id="status" class="status">Загрузка</div>
+      </div>
     </header>
 
     <section class="grid metrics" id="metrics"></section>
@@ -500,7 +513,7 @@ export function renderDashboard(): string {
     <section class="card" style="margin-top:16px">
       <div class="section-head">
         <h2>KMRS меню и техкарты</h2>
-        <span class="pill warn" id="kmrs-badge">Нужен ключ</span>
+        <span class="pill warn" id="kmrs-badge">KMRS</span>
       </div>
 
       <div class="toolbar">
@@ -513,9 +526,6 @@ export function renderDashboard(): string {
         <label>База KMRS
           <input id="kmrs-base-url" autocomplete="off" value="https://tagam.delivery">
         </label>
-        <label>Ключ модуля
-          <input id="api-key" type="password" autocomplete="off">
-        </label>
         <button class="ghost" id="save-key" type="button">Сохранить</button>
         <button class="secondary" id="import-menu" type="button">Импорт</button>
       </div>
@@ -525,7 +535,7 @@ export function renderDashboard(): string {
           <input id="menu-search" autocomplete="off" placeholder="Название блюда">
         </label>
         <button class="ghost" id="refresh-kmrs" type="button">Обновить</button>
-        <div id="kmrs-message" class="notice">Данные KMRS появятся после авторизации модуля.</div>
+        <div id="kmrs-message" class="notice">Данные KMRS загрузятся после входа в модуль.</div>
       </div>
 
       <div id="connections" class="connections"></div>
@@ -561,7 +571,6 @@ export function renderDashboard(): string {
       recipes: [],
       kmrsItems: [],
       connections: [],
-      apiKey: localStorage.getItem("tagamAccountingApiKey") || "",
       restaurantSlug: localStorage.getItem("tagamAccountingRestaurantSlug") || "7sky",
       kmrsBaseUrl: localStorage.getItem("tagamAccountingKmrsBaseUrl") || "https://tagam.delivery",
       selectedLocationId: localStorage.getItem("tagamAccountingLocationId") || "",
@@ -612,6 +621,9 @@ export function renderDashboard(): string {
       const payload = await response.json().catch(function () { return null; });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          window.location.href = "/login";
+        }
         const reason = payload && (payload.reason || payload.error);
         throw new Error(reason || url + " -> " + response.status);
       }
@@ -620,13 +632,7 @@ export function renderDashboard(): string {
     }
 
     function authHeaders(extra) {
-      const headers = Object.assign({}, extra || {});
-
-      if (state.apiKey) {
-        headers["x-api-key"] = state.apiKey;
-      }
-
-      return headers;
+      return Object.assign({}, extra || {});
     }
 
     function currentLocationId() {
@@ -788,7 +794,6 @@ export function renderDashboard(): string {
     }
 
     function renderKmrsControls() {
-      document.getElementById("api-key").value = state.apiKey;
       document.getElementById("kmrs-slug").value = state.restaurantSlug;
       document.getElementById("kmrs-base-url").value = state.kmrsBaseUrl;
       const select = document.getElementById("kmrs-location");
@@ -915,12 +920,6 @@ export function renderDashboard(): string {
     }
 
     async function refreshKmrs() {
-      if (!state.apiKey) {
-        setKmrsBadge("Нужен ключ", "warn");
-        setNotice("Введите ключ модуля, чтобы загрузить защищенные данные KMRS.", false);
-        return;
-      }
-
       setBusy(true);
       setNotice("Обновляю KMRS данные...", false);
 
@@ -946,11 +945,6 @@ export function renderDashboard(): string {
     }
 
     async function importMenu() {
-      if (!state.apiKey) {
-        setNotice("Сначала сохраните ключ модуля.", true);
-        return;
-      }
-
       setBusy(true);
       setNotice("Импортирую меню из KMRS...", false);
 
@@ -1031,16 +1025,18 @@ export function renderDashboard(): string {
 
     function wireEvents() {
       document.getElementById("save-key").addEventListener("click", function () {
-        state.apiKey = document.getElementById("api-key").value.trim();
         state.restaurantSlug = document.getElementById("kmrs-slug").value.trim();
         state.kmrsBaseUrl = document.getElementById("kmrs-base-url").value.trim();
         state.selectedLocationId = currentLocationId();
-        localStorage.setItem("tagamAccountingApiKey", state.apiKey);
         localStorage.setItem("tagamAccountingRestaurantSlug", state.restaurantSlug);
         localStorage.setItem("tagamAccountingKmrsBaseUrl", state.kmrsBaseUrl);
         localStorage.setItem("tagamAccountingLocationId", state.selectedLocationId);
         setNotice("Настройки сохранены в браузере.", false);
         refreshKmrs();
+      });
+      document.getElementById("logout").addEventListener("click", async function () {
+        await fetch("/logout", { method: "POST" }).catch(function () {});
+        window.location.href = "/login";
       });
       document.getElementById("import-menu").addEventListener("click", importMenu);
       document.getElementById("refresh-kmrs").addEventListener("click", refreshKmrs);
@@ -1110,10 +1106,7 @@ export function renderDashboard(): string {
         wireEvents();
         renderKmrsMenu();
         status.textContent = "Online";
-
-        if (state.apiKey) {
-          refreshKmrs();
-        }
+        refreshKmrs();
       } catch (error) {
         status.textContent = "Ошибка";
         status.className = "status error";
