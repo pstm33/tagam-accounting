@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import { createKmrsReadonlyClient } from "@tagam-accounting/kmrs-bridge";
 import {
   bootstrapOrganization,
   commitKmrsSaleWriteoff,
@@ -7,6 +8,8 @@ import {
   getDemoSummary,
   getInventorySummary,
   getRecipeCostDetail,
+  importKmrsMenuSnapshot,
+  listKmrsImportedMenuItems,
   listLocations,
   listKmrsSyncRuns,
   listOrganizations,
@@ -20,6 +23,7 @@ import {
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createAuthConfigFromEnv, routeRequiresAuth, verifyAccountingAuth } from "./auth.js";
 import { renderDashboard } from "./dashboard.js";
 
 export type ApiBuildOptions = {
@@ -78,6 +82,13 @@ type KmrsSyncRunsQuery = {
   limit?: string;
 };
 
+type KmrsMenuItemsQuery = {
+  organizationId?: string;
+  locationId?: string;
+  kmrsConnectionId?: string;
+  limit?: string;
+};
+
 type KmrsWriteoffBody = {
   organizationId?: string;
   locationId?: string;
@@ -96,11 +107,41 @@ type KmrsWriteoffBody = {
   rawPayload?: unknown;
 };
 
+type KmrsMenuImportBody = {
+  organizationId?: string;
+  locationId?: string;
+  baseUrl?: string;
+  kmrsMerchantId?: string;
+  restaurantSlug?: string;
+  items?: Array<{
+    kmrsItemId?: string;
+    kmrsCategoryId?: string;
+    categoryId?: string;
+    name?: string;
+    description?: string;
+    price?: number;
+    currency?: string;
+    isAvailable?: boolean;
+    rawPayload?: unknown;
+    raw?: unknown;
+  }>;
+  rawPayload?: unknown;
+};
+
+type KmrsPullMenuImportBody = {
+  organizationId?: string;
+  locationId?: string;
+  baseUrl?: string;
+  restaurantSlug?: string;
+  currencyCode?: string;
+};
+
 export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
   const app = Fastify({
     logger: true,
   });
   const pool = createDatabasePool(options.databaseUrl);
+  const authConfig = createAuthConfigFromEnv();
 
   app.register(cors, {
     origin: true,
@@ -112,8 +153,12 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     if (
       message.includes("organizationId is required") ||
       message.includes("locationId is required") ||
+      message.includes("baseUrl is required") ||
+      message.includes("kmrsMerchantId is required") ||
+      message.includes("restaurantSlug is required") ||
       message.includes("lines[") ||
-      message.includes("lines must")
+      message.includes("lines must") ||
+      message.includes("items must")
     ) {
       return reply.code(400).send({ error: message });
     }
@@ -128,6 +173,20 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
 
     app.log.error(error);
     return reply.code(500).send({ error: "Internal server error" });
+  });
+
+  app.addHook("preHandler", async (request, reply) => {
+    if (!routeRequiresAuth(request, authConfig)) {
+      return;
+    }
+
+    const result = verifyAccountingAuth(request, authConfig);
+
+    if (!result.ok) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    request.headers["x-accounting-principal"] = result.principal;
   });
 
   app.addHook("onClose", async () => {
@@ -288,6 +347,63 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     return { data: rows };
   });
 
+  app.get<{ Querystring: KmrsMenuItemsQuery }>("/v1/kmrs/menu-items", async (request) => {
+    const organizationId = getOrganizationId(request);
+    const rows = await listKmrsImportedMenuItems(pool, organizationId, {
+      limit: parseLimit(request.query.limit, 100),
+      ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+      ...(request.query.kmrsConnectionId !== undefined ? { kmrsConnectionId: request.query.kmrsConnectionId } : {}),
+    });
+
+    return { data: rows };
+  });
+
+  app.post<{ Body: KmrsMenuImportBody }>("/v1/kmrs/import/menu", async (request, reply) => {
+    const input = parseKmrsMenuImportBody(request);
+    const result = await importKmrsMenuSnapshot(pool, input);
+    return reply.code(201).send({ data: result });
+  });
+
+  app.post<{ Body: KmrsPullMenuImportBody }>("/v1/kmrs/import/menu-from-kmrs", async (request, reply) => {
+    const body = parseKmrsPullMenuImportBody(request);
+    const client = createKmrsReadonlyClient({
+      baseUrl: body.baseUrl,
+      currencyCode: body.currencyCode,
+      timeoutMs: 12_000,
+    });
+    const snapshot = await client.getStoreMenuSnapshot({
+      organizationId: body.organizationId,
+      locationId: body.locationId,
+      restaurantSlug: body.restaurantSlug,
+    });
+    const result = await importKmrsMenuSnapshot(pool, {
+      organizationId: snapshot.organizationId,
+      locationId: snapshot.locationId,
+      baseUrl: snapshot.baseUrl,
+      kmrsMerchantId: snapshot.kmrsMerchantId,
+      ...(snapshot.restaurantSlug !== undefined ? { restaurantSlug: snapshot.restaurantSlug } : {}),
+      items: snapshot.items.map((item) => ({
+        kmrsItemId: item.kmrsItemId,
+        ...(item.categoryId !== undefined ? { kmrsCategoryId: item.categoryId } : {}),
+        name: item.name,
+        ...(item.description !== undefined ? { description: item.description } : {}),
+        ...(item.price !== undefined ? { price: item.price } : {}),
+        ...(item.currency !== undefined ? { currency: item.currency } : {}),
+        ...(item.isAvailable !== undefined ? { isAvailable: item.isAvailable } : {}),
+        ...(item.raw !== undefined ? { rawPayload: item.raw } : {}),
+      })),
+      ...(snapshot.raw !== undefined ? { rawPayload: snapshot.raw } : {}),
+    });
+
+    return reply.code(201).send({
+      data: {
+        ...result,
+        restaurantSlug: snapshot.restaurantSlug,
+        kmrsMerchantId: snapshot.kmrsMerchantId,
+      },
+    });
+  });
+
   app.post<{ Body: KmrsWriteoffBody }>("/v1/kmrs/orders/preview-writeoff", async (request) => {
     const input = parseKmrsWriteoffBody(request);
     const preview = await previewKmrsSaleWriteoff(pool, input);
@@ -356,6 +472,77 @@ function parseKmrsWriteoffBody(request: FastifyRequest<{ Body: KmrsWriteoffBody 
       ...(line.rawPayload !== undefined ? { rawPayload: line.rawPayload } : {}),
     })),
     ...(body.rawPayload !== undefined ? { rawPayload: body.rawPayload } : {}),
+  };
+}
+
+function parseKmrsMenuImportBody(request: FastifyRequest<{ Body: KmrsMenuImportBody }>) {
+  const body = request.body ?? {};
+  const organizationId = body.organizationId ?? getHeaderOrganizationId(request);
+
+  if (!organizationId) {
+    throw new Error("organizationId is required");
+  }
+
+  if (!body.locationId) {
+    throw new Error("locationId is required");
+  }
+
+  if (!body.baseUrl?.trim()) {
+    throw new Error("baseUrl is required");
+  }
+
+  if (!body.kmrsMerchantId?.trim()) {
+    throw new Error("kmrsMerchantId is required");
+  }
+
+  if (!Array.isArray(body.items) || body.items.length === 0) {
+    throw new Error("items must contain at least one KMRS menu item");
+  }
+
+  return {
+    organizationId,
+    locationId: body.locationId,
+    baseUrl: body.baseUrl.trim().replace(/\/$/, ""),
+    kmrsMerchantId: body.kmrsMerchantId.trim(),
+    ...(body.restaurantSlug !== undefined ? { restaurantSlug: body.restaurantSlug } : {}),
+    items: body.items.map((item) => ({
+      kmrsItemId: item.kmrsItemId ?? "",
+      name: item.name ?? "",
+      ...(item.kmrsCategoryId !== undefined || item.categoryId !== undefined
+        ? { kmrsCategoryId: item.kmrsCategoryId ?? item.categoryId }
+        : {}),
+      ...(item.description !== undefined ? { description: item.description } : {}),
+      ...(item.price !== undefined ? { price: item.price } : {}),
+      ...(item.currency !== undefined ? { currency: item.currency } : {}),
+      ...(item.isAvailable !== undefined ? { isAvailable: item.isAvailable } : {}),
+      ...(item.rawPayload !== undefined || item.raw !== undefined ? { rawPayload: item.rawPayload ?? item.raw } : {}),
+    })),
+    ...(body.rawPayload !== undefined ? { rawPayload: body.rawPayload } : {}),
+  };
+}
+
+function parseKmrsPullMenuImportBody(request: FastifyRequest<{ Body: KmrsPullMenuImportBody }>) {
+  const body = request.body ?? {};
+  const organizationId = body.organizationId ?? getHeaderOrganizationId(request);
+
+  if (!organizationId) {
+    throw new Error("organizationId is required");
+  }
+
+  if (!body.locationId) {
+    throw new Error("locationId is required");
+  }
+
+  if (!body.restaurantSlug?.trim()) {
+    throw new Error("restaurantSlug is required");
+  }
+
+  return {
+    organizationId,
+    locationId: body.locationId,
+    baseUrl: body.baseUrl?.trim().replace(/\/$/, "") ?? "https://tagam.delivery",
+    restaurantSlug: body.restaurantSlug.trim(),
+    currencyCode: body.currencyCode ?? "TMT",
   };
 }
 

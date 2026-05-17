@@ -26,6 +26,13 @@ export { getInventorySummary } from "./stock.js";
 export type { InventorySummaryRow } from "./stock.js";
 export { listKmrsSyncRuns } from "./kmrs-sync.js";
 export type { KmrsSyncRunRecord } from "./kmrs-sync.js";
+export { importKmrsMenuSnapshot, listKmrsImportedMenuItems } from "./kmrs-menu-import.js";
+export type {
+  KmrsImportedMenuItemRecord,
+  KmrsMenuImportInput,
+  KmrsMenuImportItem,
+  KmrsMenuImportResult,
+} from "./kmrs-menu-import.js";
 export { commitKmrsSaleWriteoff, previewKmrsSaleWriteoff } from "./kmrs-writeoffs.js";
 export type {
   CommittedStockMovement,

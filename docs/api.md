@@ -22,6 +22,29 @@ Use `.env.example` as the starting point:
 DATABASE_URL=postgres://tagam:tagam@localhost:5432/tagam_accounting
 API_HOST=0.0.0.0
 API_PORT=4010
+ACCOUNTING_AUTH_MODE=protected
+ACCOUNTING_API_KEYS=kmrs_bridge:CHANGE_ME
+ACCOUNTING_HMAC_SECRETS=
+```
+
+Auth modes:
+
+- `off` - local development without bridge protection.
+- `protected` - only mutating/bridge endpoints require auth.
+- `strict` - all `/v1/*` endpoints except public smoke/demo routes require auth.
+
+Supported auth:
+
+- `x-api-key: <secret>` or `Authorization: Bearer <secret>`
+- HMAC headers: `x-accounting-key-id`, `x-accounting-timestamp`, `x-accounting-signature`
+
+HMAC signing string:
+
+```text
+METHOD
+/path?query
+ISO_TIMESTAMP
+SHA256(canonical_json_body)
 ```
 
 ## Endpoints
@@ -130,6 +153,69 @@ Query params:
 
 - `organizationId`
 - `limit`
+
+### `GET /v1/kmrs/menu-items`
+
+Query params:
+
+- `organizationId`
+- `locationId`
+- `kmrsConnectionId`
+- `limit`
+
+Returns imported KMRS menu items and their recipe-link status.
+
+### `POST /v1/kmrs/import/menu`
+
+Protected in `protected` and `strict` auth modes.
+
+Imports a read-only KMRS menu snapshot into accounting. This endpoint does not publish anything back to KMRS and does not create recipes automatically. It only records the external menu buttons that later need mapping to recipe cards.
+
+Required body:
+
+- `organizationId` or `x-organization-id`
+- `locationId`
+- `baseUrl`
+- `kmrsMerchantId`
+- `items`
+
+Each item accepts:
+
+- `kmrsItemId`
+- `kmrsCategoryId` or `categoryId`
+- `name`
+- `description`
+- `price`
+- `currency`
+- `isAvailable`
+- `rawPayload` or `raw`
+
+### `POST /v1/kmrs/import/menu-from-kmrs`
+
+Protected in `protected` and `strict` auth modes.
+
+Pulls a menu directly from a KMRS public interface endpoint in read-only mode, normalizes it, and stores it through the same import path as `/v1/kmrs/import/menu`.
+
+Required body:
+
+- `organizationId` or `x-organization-id`
+- `locationId`
+- `restaurantSlug`
+
+Optional body:
+
+- `baseUrl` defaults to `https://tagam.delivery`
+- `currencyCode` defaults to `TMT`
+
+Example body:
+
+```json
+{
+  "organizationId": "37a6eab3-57b5-44c3-a772-d288ac2fa103",
+  "locationId": "3c5e4dfc-c6f8-4b99-a6a8-d611e955fd27",
+  "restaurantSlug": "7sky"
+}
+```
 
 ### `POST /v1/kmrs/orders/preview-writeoff`
 
