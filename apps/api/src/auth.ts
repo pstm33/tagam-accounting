@@ -7,7 +7,31 @@ export type AccountingAuthConfig = {
   mode: AccountingAuthMode;
   apiKeys: Map<string, string>;
   hmacSecrets: Map<string, string>;
+  bridgeScopes: Map<string, BridgePrincipalScope>;
   timestampToleranceSeconds: number;
+};
+
+export type BridgePrincipalScope = {
+  allowAll?: boolean;
+  organizationIds?: string[];
+  locationIds?: string[];
+  baseUrls?: string[];
+  restaurantSlugs?: string[];
+  kmrsMerchantIds?: string[];
+  kmrsConnectionIds?: string[];
+};
+
+export type BridgeScopeTarget = {
+  organizationId?: string;
+  locationId?: string;
+  baseUrl?: string;
+  restaurantSlug?: string;
+  kmrsMerchantId?: string;
+  kmrsConnectionId?: string;
+};
+
+export type BridgeScopeOptions = {
+  require?: Array<keyof BridgeScopeTarget>;
 };
 
 export type AuthResult =
@@ -40,6 +64,7 @@ const publicRoutes = [
 export function createAuthConfigFromEnv(env: NodeJS.ProcessEnv = process.env): AccountingAuthConfig {
   const apiKeys = parseSecretList(env.ACCOUNTING_API_KEYS);
   const hmacSecrets = parseSecretList(env.ACCOUNTING_HMAC_SECRETS);
+  const bridgeScopes = parseBridgeScopes(env.ACCOUNTING_BRIDGE_SCOPES);
   const hasCredentials = apiKeys.size > 0 || hmacSecrets.size > 0;
   const mode = parseAuthMode(env.ACCOUNTING_AUTH_MODE, hasCredentials);
   const timestampToleranceSeconds = Number.parseInt(env.ACCOUNTING_HMAC_TOLERANCE_SECONDS ?? "300", 10);
@@ -48,6 +73,7 @@ export function createAuthConfigFromEnv(env: NodeJS.ProcessEnv = process.env): A
     mode,
     apiKeys,
     hmacSecrets,
+    bridgeScopes,
     timestampToleranceSeconds: Number.isFinite(timestampToleranceSeconds) ? timestampToleranceSeconds : 300,
   };
 }
@@ -97,12 +123,79 @@ export function verifyAccountingAuth(request: FastifyRequest, config: Accounting
   return { ok: false, reason: hmacResult.reason || apiKeyResult.reason };
 }
 
+export function getAccountingPrincipal(request: FastifyRequest): string | undefined {
+  return getHeader(request, "x-accounting-principal");
+}
+
+export function getBridgeScopeDenial(
+  config: AccountingAuthConfig,
+  principal: string | undefined,
+  target: BridgeScopeTarget,
+  options: BridgeScopeOptions = {},
+): string | undefined {
+  if (config.mode === "off" || config.bridgeScopes.size === 0) {
+    return undefined;
+  }
+
+  if (!principal) {
+    return "Missing accounting principal";
+  }
+
+  const scope = config.bridgeScopes.get(principal);
+
+  if (!scope) {
+    return "This bridge credential has no restaurant scope";
+  }
+
+  if (scope.allowAll) {
+    return undefined;
+  }
+
+  return (
+    denyIfNotAllowed(scope.organizationIds, target.organizationId, "organizationId", options) ||
+    denyIfNotAllowed(scope.locationIds, target.locationId, "locationId", options) ||
+    denyIfNotAllowed(scope.baseUrls?.map(normalizeBaseUrl), normalizeOptional(target.baseUrl, normalizeBaseUrl), "baseUrl", options) ||
+    denyIfNotAllowed(
+      scope.restaurantSlugs?.map(normalizeSlug),
+      normalizeOptional(target.restaurantSlug, normalizeSlug),
+      "restaurantSlug",
+      options,
+    ) ||
+    denyIfNotAllowed(scope.kmrsMerchantIds, target.kmrsMerchantId, "kmrsMerchantId", options) ||
+    denyIfNotAllowed(scope.kmrsConnectionIds, target.kmrsConnectionId, "kmrsConnectionId", options)
+  );
+}
+
 function parseAuthMode(value: string | undefined, hasCredentials: boolean): AccountingAuthMode {
   if (value === "off" || value === "protected" || value === "strict") {
     return value;
   }
 
   return hasCredentials ? "protected" : "off";
+}
+
+function parseBridgeScopes(value: string | undefined): Map<string, BridgePrincipalScope> {
+  const result = new Map<string, BridgePrincipalScope>();
+
+  if (!value?.trim()) {
+    return result;
+  }
+
+  const parsed = JSON.parse(value) as Record<string, BridgePrincipalScope>;
+
+  for (const [principal, scope] of Object.entries(parsed)) {
+    result.set(principal, {
+      allowAll: scope.allowAll === true,
+      ...(scope.organizationIds !== undefined ? { organizationIds: normalizedList(scope.organizationIds) } : {}),
+      ...(scope.locationIds !== undefined ? { locationIds: normalizedList(scope.locationIds) } : {}),
+      ...(scope.baseUrls !== undefined ? { baseUrls: normalizedList(scope.baseUrls).map(normalizeBaseUrl) } : {}),
+      ...(scope.restaurantSlugs !== undefined ? { restaurantSlugs: normalizedList(scope.restaurantSlugs).map(normalizeSlug) } : {}),
+      ...(scope.kmrsMerchantIds !== undefined ? { kmrsMerchantIds: normalizedList(scope.kmrsMerchantIds) } : {}),
+      ...(scope.kmrsConnectionIds !== undefined ? { kmrsConnectionIds: normalizedList(scope.kmrsConnectionIds) } : {}),
+    });
+  }
+
+  return result;
 }
 
 function parseSecretList(value: string | undefined): Map<string, string> {
@@ -131,6 +224,43 @@ function parseSecretList(value: string | undefined): Map<string, string> {
   }
 
   return result;
+}
+
+function normalizedList(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return values.map((value) => String(value).trim()).filter(Boolean);
+}
+
+function denyIfNotAllowed(
+  allowed: string[] | undefined,
+  value: string | undefined,
+  label: keyof BridgeScopeTarget,
+  options: BridgeScopeOptions,
+): string | undefined {
+  if (!allowed || allowed.length === 0) {
+    return undefined;
+  }
+
+  if (!value) {
+    return options.require?.includes(label) ? `${label} is required for this bridge credential` : undefined;
+  }
+
+  return allowed.includes(value) ? undefined : `${label} is outside this bridge credential scope`;
+}
+
+function normalizeOptional(value: string | undefined, normalizer: (input: string) => string): string | undefined {
+  return value ? normalizer(value) : undefined;
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/$/, "").toLowerCase();
+}
+
+function normalizeSlug(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function verifyApiKey(request: FastifyRequest, config: AccountingAuthConfig): AuthResult {

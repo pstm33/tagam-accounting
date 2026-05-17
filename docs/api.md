@@ -25,6 +25,7 @@ API_PORT=4010
 ACCOUNTING_AUTH_MODE=protected
 ACCOUNTING_API_KEYS=kmrs_bridge:CHANGE_ME
 ACCOUNTING_HMAC_SECRETS=
+ACCOUNTING_BRIDGE_SCOPES={"kmrs_bridge":{"organizationIds":["org-id"],"locationIds":["location-id"],"restaurantSlugs":["7sky"],"kmrsMerchantIds":["7"],"baseUrls":["https://tagam.delivery"]}}
 ```
 
 Auth modes:
@@ -46,6 +47,17 @@ METHOD
 ISO_TIMESTAMP
 SHA256(canonical_json_body)
 ```
+
+Bridge scopes:
+
+- `organizationIds` - accounting organizations this credential can access.
+- `locationIds` - restaurant/warehouse locations this credential can access.
+- `restaurantSlugs` - KMRS public restaurant slugs allowed for pull import.
+- `kmrsMerchantIds` - KMRS merchant IDs allowed after the menu is pulled or posted.
+- `baseUrls` - allowed KMRS installations, for example `https://tagam.delivery`.
+- `kmrsConnectionIds` - optional narrow access to existing connection rows.
+
+If `ACCOUNTING_BRIDGE_SCOPES` is set, a principal without a matching scope cannot import or read KMRS bridge data. If a credential is scoped to specific `locationIds`, bridge read endpoints must include `locationId` so the API does not return another location's data.
 
 ## Endpoints
 
@@ -152,6 +164,8 @@ Query params:
 Query params:
 
 - `organizationId`
+- `locationId`
+- `kmrsConnectionId`
 - `limit`
 
 ### `GET /v1/kmrs/menu-items`

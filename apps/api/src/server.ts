@@ -20,10 +20,16 @@ import {
   listRecipeVersions,
   listUnits,
 } from "@tagam-accounting/database";
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createAuthConfigFromEnv, routeRequiresAuth, verifyAccountingAuth } from "./auth.js";
+import {
+  createAuthConfigFromEnv,
+  getAccountingPrincipal,
+  getBridgeScopeDenial,
+  routeRequiresAuth,
+  verifyAccountingAuth,
+} from "./auth.js";
 import { renderDashboard } from "./dashboard.js";
 
 export type ApiBuildOptions = {
@@ -79,6 +85,8 @@ type BootstrapBody = {
 
 type KmrsSyncRunsQuery = {
   organizationId?: string;
+  locationId?: string;
+  kmrsConnectionId?: string;
   limit?: string;
 };
 
@@ -338,17 +346,39 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     return { data: rows };
   });
 
-  app.get<{ Querystring: KmrsSyncRunsQuery }>("/v1/kmrs/sync-runs", async (request) => {
+  app.get<{ Querystring: KmrsSyncRunsQuery }>("/v1/kmrs/sync-runs", async (request, reply) => {
     const organizationId = getOrganizationId(request);
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId,
+      ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+      ...(request.query.kmrsConnectionId !== undefined ? { kmrsConnectionId: request.query.kmrsConnectionId } : {}),
+    }, { require: ["locationId"] });
+
+    if (scopeDenial) {
+      return forbidden(reply, scopeDenial);
+    }
+
     const rows = await listKmrsSyncRuns(pool, organizationId, {
       limit: parseLimit(request.query.limit, 25),
+      ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+      ...(request.query.kmrsConnectionId !== undefined ? { kmrsConnectionId: request.query.kmrsConnectionId } : {}),
     });
 
     return { data: rows };
   });
 
-  app.get<{ Querystring: KmrsMenuItemsQuery }>("/v1/kmrs/menu-items", async (request) => {
+  app.get<{ Querystring: KmrsMenuItemsQuery }>("/v1/kmrs/menu-items", async (request, reply) => {
     const organizationId = getOrganizationId(request);
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId,
+      ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+      ...(request.query.kmrsConnectionId !== undefined ? { kmrsConnectionId: request.query.kmrsConnectionId } : {}),
+    }, { require: ["locationId"] });
+
+    if (scopeDenial) {
+      return forbidden(reply, scopeDenial);
+    }
+
     const rows = await listKmrsImportedMenuItems(pool, organizationId, {
       limit: parseLimit(request.query.limit, 100),
       ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
@@ -360,12 +390,35 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
 
   app.post<{ Body: KmrsMenuImportBody }>("/v1/kmrs/import/menu", async (request, reply) => {
     const input = parseKmrsMenuImportBody(request);
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId: input.organizationId,
+      locationId: input.locationId,
+      baseUrl: input.baseUrl,
+      kmrsMerchantId: input.kmrsMerchantId,
+      ...(input.restaurantSlug !== undefined ? { restaurantSlug: input.restaurantSlug } : {}),
+    });
+
+    if (scopeDenial) {
+      return forbidden(reply, scopeDenial);
+    }
+
     const result = await importKmrsMenuSnapshot(pool, input);
     return reply.code(201).send({ data: result });
   });
 
   app.post<{ Body: KmrsPullMenuImportBody }>("/v1/kmrs/import/menu-from-kmrs", async (request, reply) => {
     const body = parseKmrsPullMenuImportBody(request);
+    const preflightScopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId: body.organizationId,
+      locationId: body.locationId,
+      baseUrl: body.baseUrl,
+      restaurantSlug: body.restaurantSlug,
+    });
+
+    if (preflightScopeDenial) {
+      return forbidden(reply, preflightScopeDenial);
+    }
+
     const client = createKmrsReadonlyClient({
       baseUrl: body.baseUrl,
       currencyCode: body.currencyCode,
@@ -376,6 +429,18 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       locationId: body.locationId,
       restaurantSlug: body.restaurantSlug,
     });
+    const snapshotScopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId: snapshot.organizationId,
+      locationId: snapshot.locationId,
+      baseUrl: snapshot.baseUrl,
+      kmrsMerchantId: snapshot.kmrsMerchantId,
+      ...(snapshot.restaurantSlug !== undefined ? { restaurantSlug: snapshot.restaurantSlug } : {}),
+    });
+
+    if (snapshotScopeDenial) {
+      return forbidden(reply, snapshotScopeDenial);
+    }
+
     const result = await importKmrsMenuSnapshot(pool, {
       organizationId: snapshot.organizationId,
       locationId: snapshot.locationId,
@@ -412,6 +477,15 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
 
   app.post<{ Body: KmrsWriteoffBody }>("/v1/kmrs/orders/commit-writeoff", async (request, reply) => {
     const input = parseKmrsWriteoffBody(request);
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId: input.organizationId,
+      locationId: input.locationId,
+    });
+
+    if (scopeDenial) {
+      return forbidden(reply, scopeDenial);
+    }
+
     const committed = await commitKmrsSaleWriteoff(pool, input);
     return reply.code(201).send({ data: committed });
   });
@@ -442,6 +516,10 @@ function parseLimit(value: string | undefined, fallback: number): number {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function forbidden(reply: FastifyReply, reason: string) {
+  return reply.code(403).send({ error: "Forbidden", reason });
 }
 
 function parseKmrsWriteoffBody(request: FastifyRequest<{ Body: KmrsWriteoffBody }>) {
