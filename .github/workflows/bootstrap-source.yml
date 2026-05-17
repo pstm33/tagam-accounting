@@ -26,6 +26,7 @@ jobs:
           unzip -o /tmp/tagam-accounting-source.zip -d .
           rm -rf .bootstrap
           rm -f .github/workflows/bootstrap-source.yml
+          rm -f .github/workflows/ci.yml
 
       - name: Commit unpacked source
         shell: bash
