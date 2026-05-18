@@ -38,6 +38,10 @@ export function renderDashboard(): string {
       letter-spacing: 0;
     }
 
+    body.detail-open {
+      overflow: hidden;
+    }
+
     main {
       max-width: 1220px;
       margin: 0 auto;
@@ -290,7 +294,8 @@ export function renderDashboard(): string {
 
     .table-wrap {
       width: 100%;
-      overflow-x: auto;
+      max-height: calc(100vh - 280px);
+      overflow: auto;
       border: 1px solid var(--line);
       border-radius: 8px;
     }
@@ -315,6 +320,9 @@ export function renderDashboard(): string {
     }
 
     th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
       color: var(--muted);
       font-size: 12px;
       text-transform: uppercase;
@@ -480,7 +488,7 @@ export function renderDashboard(): string {
     }
 
     .recipe-editor {
-      margin: 12px 0;
+      margin: 0;
     }
 
     .editor-panel {
@@ -488,6 +496,70 @@ export function renderDashboard(): string {
       border-radius: 8px;
       background: #fbfcfe;
       padding: 14px;
+    }
+
+    .detail-shell {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      padding: 24px;
+    }
+
+    .detail-shell[hidden] {
+      display: none !important;
+    }
+
+    .detail-backdrop {
+      position: absolute;
+      inset: 0;
+      min-height: 0;
+      width: 100%;
+      border: 0;
+      border-radius: 0;
+      background: rgba(24, 32, 51, .42);
+      cursor: pointer;
+    }
+
+    .detail-panel {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      width: min(1180px, 100%);
+      max-height: calc(100vh - 48px);
+      margin: auto;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 24px 60px rgba(24, 32, 51, .25);
+    }
+
+    .detail-panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .detail-panel-head h2 {
+      margin-top: 4px;
+    }
+
+    .detail-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 16px;
+      background: #f9fafc;
+    }
+
+    .detail-body .table-wrap {
+      max-height: none;
     }
 
     .editor-head,
@@ -626,6 +698,18 @@ export function renderDashboard(): string {
       th,
       td {
         padding: 8px 6px;
+      }
+
+      .detail-shell {
+        padding: 8px;
+      }
+
+      .detail-panel {
+        max-height: calc(100vh - 16px);
+      }
+
+      .detail-panel-head {
+        align-items: flex-start;
       }
 
       .actions {
@@ -786,7 +870,6 @@ export function renderDashboard(): string {
         <div id="recipe-list-message" class="notice" style="grid-column: span 2">Техкарты сгруппированы по типу.</div>
       </div>
       <div id="recipes-list"></div>
-      <div id="recipe-editor" class="recipe-editor"></div>
     </section>
 
     <section class="card module-view" data-module-view="purchases" hidden>
@@ -894,6 +977,20 @@ export function renderDashboard(): string {
       <h2>API</h2>
       <div class="links" id="links"></div>
     </section>
+
+    <div class="detail-shell" id="recipe-editor-shell" hidden>
+      <button class="detail-backdrop" id="recipe-editor-backdrop" type="button" aria-label="Закрыть редактор"></button>
+      <section class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="recipe-editor-heading">
+        <div class="detail-panel-head">
+          <div>
+            <span class="pill ok">Техкарта</span>
+            <h2 id="recipe-editor-heading">Редактор техкарты</h2>
+          </div>
+          <button class="ghost" id="close-recipe-editor" type="button">Закрыть</button>
+        </div>
+        <div id="recipe-editor" class="recipe-editor detail-body"></div>
+      </section>
+    </div>
   </main>
 
   <script>
@@ -2087,12 +2184,19 @@ export function renderDashboard(): string {
 
     function renderRecipeEditor() {
       const root = document.getElementById("recipe-editor");
+      const shell = document.getElementById("recipe-editor-shell");
       const detail = state.selectedRecipeDetail;
       root.replaceChildren();
 
       if (!detail) {
+        shell.hidden = true;
+        document.body.classList.remove("detail-open");
         return;
       }
+
+      shell.hidden = false;
+      document.body.classList.add("detail-open");
+      document.getElementById("recipe-editor-heading").textContent = detail.recipeName + " / " + detail.versionCode;
 
       const panel = document.createElement("div");
       panel.className = "editor-panel";
@@ -2197,7 +2301,12 @@ export function renderDashboard(): string {
           deleteRecipeEditorLine(button.dataset.id);
         }
       });
-      root.scrollIntoView({ behavior: "smooth", block: "start" });
+      root.scrollTop = 0;
+    }
+
+    function closeRecipeEditor() {
+      state.selectedRecipeDetail = null;
+      renderRecipeEditor();
     }
 
     function syncEditorLineKind() {
@@ -2754,6 +2863,13 @@ export function renderDashboard(): string {
 
         if (button) {
           switchModule(button.dataset.module);
+        }
+      });
+      document.getElementById("close-recipe-editor").addEventListener("click", closeRecipeEditor);
+      document.getElementById("recipe-editor-backdrop").addEventListener("click", closeRecipeEditor);
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && !document.getElementById("recipe-editor-shell").hidden) {
+          closeRecipeEditor();
         }
       });
       document.getElementById("save-key").addEventListener("click", function () {
