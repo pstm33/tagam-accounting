@@ -151,30 +151,23 @@ export async function previewKmrsSaleWriteoff(
     const requirements: KmrsSaleWriteoffRequirement[] = [];
 
     for (const costLine of recipe.lines) {
-      if (
-        costLine.costStatus !== "ok" ||
-        costLine.costQuantity === null ||
-        costLine.costUnitId === null ||
-        costLine.costUnitCode === null ||
-        costLine.unitCost === null ||
-        costLine.lineCost === null ||
-        costLine.currency === null
-      ) {
+      if (costLine.costStatus !== "ok" || costLine.lineCost === null) {
         warnings.push(`${recipe.recipeName}: ${costLine.productName} has ${costLine.costStatus}`);
-        continue;
       }
+    }
 
+    for (const requirement of recipe.requirements) {
       requirements.push({
-        recipeLineId: costLine.recipeLineId,
-        productId: costLine.productId,
-        productName: costLine.productName,
-        quantity: costLine.costQuantity * saleLine.quantity,
-        unitId: costLine.costUnitId,
-        unitCode: costLine.costUnitCode,
-        estimatedCost: costLine.lineCost * saleLine.quantity,
-        unitCost: costLine.unitCost,
-        currency: costLine.currency,
-        effectiveYieldPercent: costLine.effectiveYieldPercent,
+        recipeLineId: requirement.recipeLineId,
+        productId: requirement.productId,
+        productName: requirement.productName,
+        quantity: requirement.quantity * saleLine.quantity,
+        unitId: requirement.unitId,
+        unitCode: requirement.unitCode,
+        estimatedCost: requirement.estimatedCost * saleLine.quantity,
+        unitCost: requirement.unitCost,
+        currency: requirement.currency,
+        effectiveYieldPercent: requirement.effectiveYieldPercent,
         availabilityStatus: "ok",
         availableQuantity: 0,
         shortageQuantity: 0,

@@ -8,10 +8,34 @@ export type RecipeLineProcessingRecord = {
   yieldPercent: string;
 };
 
-export type RecipeCostLineRecord = {
+export type RecipeCostStatus =
+  | "ok"
+  | "missing_cost"
+  | "missing_conversion"
+  | "missing_child_cost"
+  | "cycle_detected";
+
+export type RecipeCostRequirementRecord = {
   recipeLineId: string;
   productId: string;
   productName: string;
+  quantity: number;
+  unitId: string;
+  unitCode: string;
+  estimatedCost: number;
+  unitCost: number;
+  currency: string;
+  effectiveYieldPercent: number;
+};
+
+export type RecipeCostLineRecord = {
+  recipeLineId: string;
+  lineKind: "product" | "recipe";
+  productId: string | null;
+  productName: string;
+  childRecipeVersionId: string | null;
+  childRecipeName: string | null;
+  childRecipeVersionCode: string | null;
   quantity: string;
   unitId: string;
   unitCode: string;
@@ -28,7 +52,8 @@ export type RecipeCostLineRecord = {
   unitCost: number | null;
   lineCost: number | null;
   currency: string | null;
-  costStatus: "ok" | "missing_cost" | "missing_conversion";
+  costStatus: RecipeCostStatus;
+  requirements: RecipeCostRequirementRecord[];
 };
 
 export type RecipeCostDetailRecord = {
@@ -53,6 +78,7 @@ export type RecipeCostDetailRecord = {
   grossMargin: number | null;
   recommendedMenuPrice: number | null;
   lines: RecipeCostLineRecord[];
+  requirements: RecipeCostRequirementRecord[];
 };
 
 type RecipeHeaderRow = {
@@ -74,8 +100,16 @@ type RecipeHeaderRow = {
 
 type RecipeLineRow = {
   recipeLineId: string;
-  productId: string;
-  productName: string;
+  productId: string | null;
+  productName: string | null;
+  childRecipeVersionId: string | null;
+  childRecipeName: string | null;
+  childRecipeVersionCode: string | null;
+  childRecipeType: string | null;
+  childYieldQuantity: string | null;
+  childYieldUnitId: string | null;
+  childYieldUnitCode: string | null;
+  childOutputProductId: string | null;
   quantity: string;
   unitId: string;
   unitCode: string;
@@ -89,13 +123,90 @@ type RecipeLineRow = {
   conversionFactor: string | null;
 };
 
+type QuantityResult = {
+  processing: RecipeLineProcessingRecord[];
+  effectiveYieldFactor: number;
+  stockInputQuantity: number;
+  preparedOutputQuantity: number;
+};
+
 export async function getRecipeCostDetail(
   pool: DatabasePool,
   organizationId: string,
   recipeVersionId: string,
   options: { locationId?: string } = {},
 ): Promise<RecipeCostDetailRecord | null> {
-  const headerResult = await pool.query<RecipeHeaderRow>(
+  return getRecipeCostDetailInternal(pool, organizationId, recipeVersionId, options, []);
+}
+
+async function getRecipeCostDetailInternal(
+  pool: DatabasePool,
+  organizationId: string,
+  recipeVersionId: string,
+  options: { locationId?: string },
+  stack: string[],
+): Promise<RecipeCostDetailRecord | null> {
+  if (stack.includes(recipeVersionId)) {
+    return null;
+  }
+
+  const header = await getHeader(pool, organizationId, recipeVersionId);
+
+  if (!header) {
+    return null;
+  }
+
+  const rows = await getRows(pool, organizationId, recipeVersionId, options.locationId);
+  const nextStack = [...stack, recipeVersionId];
+  const lines: RecipeCostLineRecord[] = [];
+
+  for (const row of rows) {
+    lines.push(
+      row.childRecipeVersionId
+        ? await childRecipeLine(pool, organizationId, row, options, nextStack)
+        : productCostLine(row),
+    );
+  }
+
+  const complete = lines.length > 0 && lines.every((line) => line.costStatus === "ok" && line.lineCost !== null);
+  const totalCost = complete
+    ? lines.reduce((sum, line) => sum + (line.lineCost ?? 0), 0)
+    : null;
+  const yieldQuantity = toNumber(header.yieldQuantity);
+  const costPerYieldUnit = totalCost === null ? null : totalCost / yieldQuantity;
+  const menuPrice = toNullableNumber(header.menuPrice);
+  const targetFoodCostPercent = toNullableNumber(header.targetFoodCostPercent);
+  const foodCostPercent =
+    costPerYieldUnit !== null && menuPrice !== null && menuPrice > 0
+      ? (costPerYieldUnit / menuPrice) * 100
+      : null;
+  const grossMargin = costPerYieldUnit !== null && menuPrice !== null ? menuPrice - costPerYieldUnit : null;
+  const recommendedMenuPrice =
+    costPerYieldUnit !== null && targetFoodCostPercent !== null && targetFoodCostPercent > 0
+      ? costPerYieldUnit / (targetFoodCostPercent / 100)
+      : null;
+  const requirements = complete ? aggregateRequirements(lines.flatMap((line) => line.requirements)) : [];
+
+  return {
+    ...header,
+    currency: header.currency ?? lines.find((line) => line.currency !== null)?.currency ?? "TMT",
+    costingStatus: complete ? "complete" : "incomplete",
+    totalCost,
+    costPerYieldUnit,
+    foodCostPercent,
+    grossMargin,
+    recommendedMenuPrice,
+    lines,
+    requirements,
+  };
+}
+
+async function getHeader(
+  pool: DatabasePool,
+  organizationId: string,
+  recipeVersionId: string,
+): Promise<RecipeHeaderRow | null> {
+  const result = await pool.query<RecipeHeaderRow>(
     `
       select
         r.id as "recipeId",
@@ -121,18 +232,30 @@ export async function getRecipeCostDetail(
     `,
     [organizationId, recipeVersionId],
   );
-  const header = headerResult.rows[0];
 
-  if (!header) {
-    return null;
-  }
+  return result.rows[0] ?? null;
+}
 
-  const lineResult = await pool.query<RecipeLineRow>(
+async function getRows(
+  pool: DatabasePool,
+  organizationId: string,
+  recipeVersionId: string,
+  locationId: string | undefined,
+): Promise<RecipeLineRow[]> {
+  const result = await pool.query<RecipeLineRow>(
     `
       select
         rl.id as "recipeLineId",
         p.id as "productId",
         p.name as "productName",
+        child_rv.id as "childRecipeVersionId",
+        child_r.name as "childRecipeName",
+        child_rv.version_code as "childRecipeVersionCode",
+        child_r.recipe_type as "childRecipeType",
+        child_rv.yield_quantity as "childYieldQuantity",
+        child_rv.yield_unit_id as "childYieldUnitId",
+        child_yu.code as "childYieldUnitCode",
+        child_r.output_product_id as "childOutputProductId",
         rl.quantity,
         rl.unit_id as "unitId",
         line_unit.code as "unitCode",
@@ -156,6 +279,7 @@ export async function getRecipeCostDetail(
         cost.unit_cost as "unitCost",
         cost.currency,
         case
+          when p.id is null then null
           when cost.unit_id is null then null
           when cost.unit_id = rl.unit_id then 1
           else coalesce(product_conversion.factor, global_conversion.factor)
@@ -163,7 +287,10 @@ export async function getRecipeCostDetail(
       from recipe_lines rl
       join recipe_versions rv on rv.id = rl.recipe_version_id
       join recipes r on r.id = rv.recipe_id
-      join products p on p.id = rl.ingredient_product_id
+      left join products p on p.id = rl.ingredient_product_id
+      left join recipe_versions child_rv on child_rv.id = rl.child_recipe_version_id
+      left join recipes child_r on child_r.id = child_rv.recipe_id
+      left join units child_yu on child_yu.id = child_rv.yield_unit_id
       join units line_unit on line_unit.id = rl.unit_id
       left join recipe_line_processing rlp on rlp.recipe_line_id = rl.id
       left join processing_methods pm on pm.id = rlp.processing_method_id
@@ -183,7 +310,7 @@ export async function getRecipeCostDetail(
         group by sl.base_unit_id, cost_unit.code
         order by sum(sl.current_quantity) desc
         limit 1
-      ) cost on true
+      ) cost on p.id is not null
       left join unit_conversions product_conversion
         on product_conversion.organization_id = r.organization_id
         and product_conversion.product_id = p.id
@@ -200,6 +327,14 @@ export async function getRecipeCostDetail(
         rl.id,
         p.id,
         p.name,
+        child_rv.id,
+        child_r.name,
+        child_rv.version_code,
+        child_r.recipe_type,
+        child_rv.yield_quantity,
+        child_rv.yield_unit_id,
+        child_yu.code,
+        child_r.output_product_id,
         line_unit.code,
         cost.unit_id,
         cost.unit_code,
@@ -207,43 +342,175 @@ export async function getRecipeCostDetail(
         cost.currency,
         product_conversion.factor,
         global_conversion.factor
-      order by rl.sort_order, p.name
+      order by rl.sort_order, coalesce(p.name, child_r.name)
     `,
-    [organizationId, recipeVersionId, options.locationId ?? null],
+    [organizationId, recipeVersionId, locationId ?? null],
   );
-  const lines = lineResult.rows.map(costLine);
-  const complete = lines.length > 0 && lines.every((line) => line.costStatus === "ok" && line.lineCost !== null);
-  const totalCost = complete
-    ? lines.reduce((sum, line) => sum + (line.lineCost ?? 0), 0)
-    : null;
-  const yieldQuantity = toNumber(header.yieldQuantity);
-  const costPerYieldUnit = totalCost === null ? null : totalCost / yieldQuantity;
-  const menuPrice = toNullableNumber(header.menuPrice);
-  const targetFoodCostPercent = toNullableNumber(header.targetFoodCostPercent);
-  const foodCostPercent =
-    costPerYieldUnit !== null && menuPrice !== null && menuPrice > 0
-      ? (costPerYieldUnit / menuPrice) * 100
-      : null;
-  const grossMargin = costPerYieldUnit !== null && menuPrice !== null ? menuPrice - costPerYieldUnit : null;
-  const recommendedMenuPrice =
-    costPerYieldUnit !== null && targetFoodCostPercent !== null && targetFoodCostPercent > 0
-      ? costPerYieldUnit / (targetFoodCostPercent / 100)
-      : null;
+
+  return result.rows;
+}
+
+function productCostLine(row: RecipeLineRow): RecipeCostLineRecord {
+  const quantities = lineQuantities(row);
+  const unitCost = toNullableNumber(row.unitCost);
+  const conversionFactor = toNullableNumber(row.conversionFactor);
+  const costQuantity = conversionFactor === null ? null : quantities.stockInputQuantity * conversionFactor;
+  const lineCost = unitCost === null || costQuantity === null ? null : unitCost * costQuantity;
+  const costStatus: RecipeCostStatus =
+    unitCost === null ? "missing_cost" : conversionFactor === null ? "missing_conversion" : "ok";
+  const requirements =
+    costStatus === "ok" &&
+    row.productId !== null &&
+    row.costUnitId !== null &&
+    row.costUnitCode !== null &&
+    row.currency !== null &&
+    costQuantity !== null &&
+    unitCost !== null &&
+    lineCost !== null
+      ? [
+          {
+            recipeLineId: row.recipeLineId,
+            productId: row.productId,
+            productName: row.productName ?? "Product",
+            quantity: costQuantity,
+            unitId: row.costUnitId,
+            unitCode: row.costUnitCode,
+            estimatedCost: lineCost,
+            unitCost,
+            currency: row.currency,
+            effectiveYieldPercent: quantities.effectiveYieldFactor * 100,
+          },
+        ]
+      : [];
 
   return {
-    ...header,
-    currency: header.currency ?? lines[0]?.currency ?? "TMT",
-    costingStatus: complete ? "complete" : "incomplete",
-    totalCost,
-    costPerYieldUnit,
-    foodCostPercent,
-    grossMargin,
-    recommendedMenuPrice,
-    lines,
+    recipeLineId: row.recipeLineId,
+    lineKind: "product",
+    productId: row.productId,
+    productName: row.productName ?? "Product",
+    childRecipeVersionId: null,
+    childRecipeName: null,
+    childRecipeVersionCode: null,
+    quantity: row.quantity,
+    unitId: row.unitId,
+    unitCode: row.unitCode,
+    quantityMode: row.quantityMode,
+    extraWastePercent: row.extraWastePercent,
+    processing: quantities.processing,
+    effectiveYieldPercent: quantities.effectiveYieldFactor * 100,
+    stockInputQuantity: quantities.stockInputQuantity,
+    preparedOutputQuantity: quantities.preparedOutputQuantity,
+    processingDeltaQuantity: quantities.stockInputQuantity - quantities.preparedOutputQuantity,
+    costQuantity,
+    costUnitId: row.costUnitId,
+    costUnitCode: row.costUnitCode,
+    unitCost,
+    lineCost,
+    currency: row.currency,
+    costStatus,
+    requirements,
   };
 }
 
-function costLine(row: RecipeLineRow): RecipeCostLineRecord {
+async function childRecipeLine(
+  pool: DatabasePool,
+  organizationId: string,
+  row: RecipeLineRow,
+  options: { locationId?: string },
+  stack: string[],
+): Promise<RecipeCostLineRecord> {
+  const quantities = lineQuantities(row);
+  const baseLine = {
+    recipeLineId: row.recipeLineId,
+    lineKind: "recipe" as const,
+    productId: row.childOutputProductId,
+    productName: row.childRecipeName ?? "Recipe",
+    childRecipeVersionId: row.childRecipeVersionId,
+    childRecipeName: row.childRecipeName,
+    childRecipeVersionCode: row.childRecipeVersionCode,
+    quantity: row.quantity,
+    unitId: row.unitId,
+    unitCode: row.unitCode,
+    quantityMode: row.quantityMode,
+    extraWastePercent: row.extraWastePercent,
+    processing: quantities.processing,
+    effectiveYieldPercent: quantities.effectiveYieldFactor * 100,
+    stockInputQuantity: quantities.stockInputQuantity,
+    preparedOutputQuantity: quantities.preparedOutputQuantity,
+    processingDeltaQuantity: quantities.stockInputQuantity - quantities.preparedOutputQuantity,
+  };
+
+  if (!row.childRecipeVersionId || !row.childYieldQuantity || !row.childYieldUnitId || !row.childYieldUnitCode) {
+    return incompleteChildLine(baseLine, "missing_child_cost");
+  }
+
+  if (stack.includes(row.childRecipeVersionId)) {
+    return incompleteChildLine(baseLine, "cycle_detected");
+  }
+
+  const child = await getRecipeCostDetailInternal(pool, organizationId, row.childRecipeVersionId, options, stack);
+
+  if (!child || child.totalCost === null || child.costPerYieldUnit === null || child.costingStatus !== "complete") {
+    return incompleteChildLine(baseLine, "missing_child_cost", child?.currency ?? null);
+  }
+
+  const conversionFactor = await findConversionFactor(
+    pool,
+    organizationId,
+    row.childOutputProductId,
+    row.unitId,
+    row.childYieldUnitId,
+  );
+
+  if (conversionFactor === null) {
+    return incompleteChildLine(baseLine, "missing_conversion", child.currency);
+  }
+
+  const childOutputQuantity = quantities.stockInputQuantity * conversionFactor;
+  const childYieldQuantity = toNumber(row.childYieldQuantity);
+  const scale = childOutputQuantity / childYieldQuantity;
+  const lineCost = child.totalCost * scale;
+  const requirements = child.requirements.map((requirement) => ({
+    ...requirement,
+    quantity: requirement.quantity * scale,
+    estimatedCost: requirement.estimatedCost * scale,
+  }));
+
+  return {
+    ...baseLine,
+    costQuantity: childOutputQuantity,
+    costUnitId: row.childYieldUnitId,
+    costUnitCode: row.childYieldUnitCode,
+    unitCost: child.costPerYieldUnit,
+    lineCost,
+    currency: child.currency,
+    costStatus: "ok",
+    requirements,
+  };
+}
+
+function incompleteChildLine(
+  baseLine: Omit<
+    RecipeCostLineRecord,
+    "costQuantity" | "costUnitId" | "costUnitCode" | "unitCost" | "lineCost" | "currency" | "costStatus" | "requirements"
+  >,
+  costStatus: RecipeCostStatus,
+  currency: string | null = null,
+): RecipeCostLineRecord {
+  return {
+    ...baseLine,
+    costQuantity: null,
+    costUnitId: null,
+    costUnitCode: null,
+    unitCost: null,
+    lineCost: null,
+    currency,
+    costStatus,
+    requirements: [],
+  };
+}
+
+function lineQuantities(row: Pick<RecipeLineRow, "processing" | "quantity" | "quantityMode" | "extraWastePercent">): QuantityResult {
   const processing = parseProcessing(row.processing);
   const quantity = toNumber(row.quantity);
   const extraWasteFactor = 1 + toNumber(row.extraWastePercent) / 100;
@@ -256,35 +523,66 @@ function costLine(row: RecipeLineRow): RecipeCostLineRecord {
   const stockInputQuantity = stockInputBeforeWaste * extraWasteFactor;
   const preparedOutputQuantity =
     row.quantityMode === "prepared_output" ? quantity : quantity * effectiveYieldFactor;
-  const unitCost = toNullableNumber(row.unitCost);
-  const conversionFactor = toNullableNumber(row.conversionFactor);
-  const costQuantity = conversionFactor === null ? null : stockInputQuantity * conversionFactor;
-  const lineCost = unitCost === null || costQuantity === null ? null : unitCost * costQuantity;
-  const costStatus =
-    unitCost === null ? "missing_cost" : conversionFactor === null ? "missing_conversion" : "ok";
 
   return {
-    recipeLineId: row.recipeLineId,
-    productId: row.productId,
-    productName: row.productName,
-    quantity: row.quantity,
-    unitId: row.unitId,
-    unitCode: row.unitCode,
-    quantityMode: row.quantityMode,
-    extraWastePercent: row.extraWastePercent,
     processing,
-    effectiveYieldPercent: effectiveYieldFactor * 100,
+    effectiveYieldFactor,
     stockInputQuantity,
     preparedOutputQuantity,
-    processingDeltaQuantity: stockInputQuantity - preparedOutputQuantity,
-    costQuantity,
-    costUnitId: row.costUnitId,
-    costUnitCode: row.costUnitCode,
-    unitCost,
-    lineCost,
-    currency: row.currency,
-    costStatus,
   };
+}
+
+async function findConversionFactor(
+  pool: DatabasePool,
+  organizationId: string,
+  productId: string | null,
+  fromUnitId: string,
+  toUnitId: string,
+): Promise<number | null> {
+  if (fromUnitId === toUnitId) {
+    return 1;
+  }
+
+  const result = await pool.query<{ factor: string }>(
+    `
+      select coalesce(product_conversion.factor, global_conversion.factor) as factor
+      from (select 1) seed
+      left join unit_conversions product_conversion
+        on product_conversion.organization_id = $1
+        and product_conversion.product_id = $2
+        and product_conversion.from_unit_id = $3
+        and product_conversion.to_unit_id = $4
+      left join unit_conversions global_conversion
+        on global_conversion.organization_id = $1
+        and global_conversion.product_id is null
+        and global_conversion.from_unit_id = $3
+        and global_conversion.to_unit_id = $4
+      limit 1
+    `,
+    [organizationId, productId, fromUnitId, toUnitId],
+  );
+
+  return toNullableNumber(result.rows[0]?.factor ?? null);
+}
+
+function aggregateRequirements(requirements: RecipeCostRequirementRecord[]): RecipeCostRequirementRecord[] {
+  const byProductUnit = new Map<string, RecipeCostRequirementRecord>();
+
+  for (const requirement of requirements) {
+    const key = `${requirement.productId}:${requirement.unitId}:${requirement.currency}`;
+    const existing = byProductUnit.get(key);
+
+    if (!existing) {
+      byProductUnit.set(key, { ...requirement });
+      continue;
+    }
+
+    existing.quantity += requirement.quantity;
+    existing.estimatedCost += requirement.estimatedCost;
+    existing.unitCost = existing.estimatedCost / existing.quantity;
+  }
+
+  return [...byProductUnit.values()];
 }
 
 function parseProcessing(value: unknown): RecipeLineProcessingRecord[] {

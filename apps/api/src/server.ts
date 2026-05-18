@@ -108,6 +108,7 @@ type RecipeLineParams = {
 type RecipeLineBody = {
   organizationId?: string;
   ingredientProductId?: string;
+  childRecipeVersionId?: string;
   quantity?: number;
   unitId?: string;
   quantityMode?: "stock_input" | "prepared_output";
@@ -249,6 +250,9 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       message.includes("defaultWastePercent must") ||
       message.includes("parentId must") ||
       message.includes("ingredientProductId is required") ||
+      message.includes("childRecipeVersionId") ||
+      message.includes("Recipe line must contain") ||
+      message.includes("Recipe nesting cycle is not allowed") ||
       message.includes("unitId is required") ||
       message.includes("quantity must") ||
       message.includes("yieldQuantity must") ||
@@ -534,7 +538,8 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       const result = await addRecipeLine(pool, {
         organizationId,
         recipeVersionId: request.params.recipeVersionId,
-        ingredientProductId: request.body.ingredientProductId ?? "",
+        ...(request.body.ingredientProductId !== undefined ? { ingredientProductId: request.body.ingredientProductId } : {}),
+        ...(request.body.childRecipeVersionId !== undefined ? { childRecipeVersionId: request.body.childRecipeVersionId } : {}),
         quantity: request.body.quantity ?? 0,
         unitId: request.body.unitId ?? "",
         ...(request.body.quantityMode !== undefined ? { quantityMode: request.body.quantityMode } : {}),

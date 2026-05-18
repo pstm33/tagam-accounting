@@ -15,7 +15,8 @@ export type RecipeVersionUpdateInput = {
 export type RecipeLineInput = {
   organizationId: string;
   recipeVersionId: string;
-  ingredientProductId: string;
+  ingredientProductId?: string;
+  childRecipeVersionId?: string;
   quantity: number;
   unitId: string;
   quantityMode?: "stock_input" | "prepared_output";
@@ -93,13 +94,25 @@ export async function addRecipeLine(
   try {
     await client.query("begin");
     await ensureRecipeVersionExists(client, input.organizationId, input.recipeVersionId);
-    await ensureProductExists(client, input.organizationId, input.ingredientProductId);
+    if (input.ingredientProductId) {
+      await ensureProductExists(client, input.organizationId, input.ingredientProductId);
+    }
+    if (input.childRecipeVersionId) {
+      await ensureRecipeVersionExists(client, input.organizationId, input.childRecipeVersionId);
+      await ensureRecipeLineDoesNotCreateCycle(
+        client,
+        input.organizationId,
+        input.recipeVersionId,
+        input.childRecipeVersionId,
+      );
+    }
     await ensureUnitExists(client, input.organizationId, input.unitId);
     const result = await client.query<IdRow>(
       `
         insert into recipe_lines (
           recipe_version_id,
           ingredient_product_id,
+          child_recipe_version_id,
           quantity,
           unit_id,
           quantity_mode,
@@ -114,14 +127,16 @@ export async function addRecipeLine(
           $4,
           $5,
           $6,
+          $7,
           coalesce((select max(sort_order) + 10 from recipe_lines where recipe_version_id = $1), 10),
-          $7
+          $8
         )
         returning id
       `,
       [
         input.recipeVersionId,
-        input.ingredientProductId,
+        input.ingredientProductId ?? null,
+        input.childRecipeVersionId ?? null,
         input.quantity,
         input.unitId,
         input.quantityMode ?? "stock_input",
@@ -233,6 +248,38 @@ async function ensureUnitExists(client: DatabaseClient, organizationId: string, 
   }
 }
 
+async function ensureRecipeLineDoesNotCreateCycle(
+  client: DatabaseClient,
+  organizationId: string,
+  recipeVersionId: string,
+  childRecipeVersionId: string,
+): Promise<void> {
+  const result = await client.query<IdRow>(
+    `
+      with recursive descendants(id) as (
+        select $3::uuid
+        union
+        select rl.child_recipe_version_id
+        from recipe_lines rl
+        join descendants d on d.id = rl.recipe_version_id
+        join recipe_versions rv on rv.id = rl.recipe_version_id
+        join recipes r on r.id = rv.recipe_id
+        where r.organization_id = $1
+          and rl.child_recipe_version_id is not null
+      )
+      select id
+      from descendants
+      where id = $2::uuid
+      limit 1
+    `,
+    [organizationId, recipeVersionId, childRecipeVersionId],
+  );
+
+  if (result.rows[0]) {
+    throw new Error("Recipe nesting cycle is not allowed");
+  }
+}
+
 function validateRecipeVersionUpdate(input: RecipeVersionUpdateInput): void {
   if (input.yieldQuantity !== undefined && (!Number.isFinite(input.yieldQuantity) || input.yieldQuantity <= 0)) {
     throw new Error("yieldQuantity must be greater than zero");
@@ -255,8 +302,11 @@ function validateRecipeVersionUpdate(input: RecipeVersionUpdateInput): void {
 }
 
 function validateRecipeLineInput(input: RecipeLineInput): void {
-  if (!input.ingredientProductId) {
-    throw new Error("ingredientProductId is required");
+  const hasProduct = Boolean(input.ingredientProductId);
+  const hasChildRecipe = Boolean(input.childRecipeVersionId);
+
+  if (hasProduct === hasChildRecipe) {
+    throw new Error("Recipe line must contain either ingredientProductId or childRecipeVersionId");
   }
 
   if (!input.unitId) {

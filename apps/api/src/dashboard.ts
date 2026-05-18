@@ -468,7 +468,7 @@ export function renderDashboard(): string {
     }
 
     .editor-grid.wide {
-      grid-template-columns: 1.4fr .7fr .7fr .7fr .7fr auto;
+      grid-template-columns: .75fr 1.25fr 1.25fr .6fr .55fr .8fr .55fr auto;
     }
 
     .product-form,
@@ -840,6 +840,10 @@ export function renderDashboard(): string {
       return state.products.find(function (product) { return product.id === id; }) || null;
     }
 
+    function recipeByVersionId(id) {
+      return state.recipes.find(function (recipe) { return recipe.recipeVersionId === id; }) || null;
+    }
+
     function unitById(id) {
       return state.units.find(function (unit) { return unit.id === id; }) || null;
     }
@@ -886,6 +890,18 @@ export function renderDashboard(): string {
         tracked: "склад",
         theoretical_only: "только норма",
         not_tracked: "без учета"
+      };
+      return labels[value] || value;
+    }
+
+    function recipeTypeLabel(value) {
+      const labels = {
+        menu_item: "блюдо",
+        sub_recipe: "вложенная",
+        prep_item: "полуфабрикат",
+        bar_item: "бар",
+        pour: "розлив",
+        modifier_delta: "модификатор"
       };
       return labels[value] || value;
     }
@@ -1379,7 +1395,9 @@ export function renderDashboard(): string {
         '<h3 style="margin-top:16px">Состав</h3>',
         '<div id="editor-lines"></div>',
         '<div class="editor-grid wide">',
-        '  <label>Продукт<select id="editor-line-product"></select></label>',
+        '  <label>Тип строки<select id="editor-line-kind"><option value="product">продукт</option><option value="recipe">техкарта</option></select></label>',
+        '  <label id="editor-line-product-label">Продукт<select id="editor-line-product"></select></label>',
+        '  <label id="editor-line-recipe-label">Техкарта<select id="editor-line-recipe"></select></label>',
         '  <label>Кол-во<input id="editor-line-quantity" type="number" min="0.001" step="0.001" value="1"></label>',
         '  <label>Ед.<select id="editor-line-unit"></select></label>',
         '  <label>Режим<select id="editor-line-mode"><option value="stock_input">со склада</option><option value="prepared_output">после обработки</option></select></label>',
@@ -1406,6 +1424,11 @@ export function renderDashboard(): string {
       fillSelect(document.getElementById("editor-line-product"), state.products, function (product) {
         return product.name;
       });
+      fillSelect(document.getElementById("editor-line-recipe"), state.recipes.filter(function (recipe) {
+        return recipe.recipeVersionId !== detail.recipeVersionId;
+      }), function (recipe) {
+        return recipeLabel(recipe) + " · " + recipeTypeLabel(recipe.recipeType);
+      });
       fillSelect(document.getElementById("editor-line-unit"), state.units, function (unit) {
         return unit.code;
       });
@@ -1424,11 +1447,20 @@ export function renderDashboard(): string {
 
       renderRecipeEditorLines(detail);
 
+      syncEditorLineKind();
+      document.getElementById("editor-line-kind").addEventListener("change", syncEditorLineKind);
       document.getElementById("editor-line-product").addEventListener("change", function (event) {
         const product = productById(event.target.value);
         if (product) {
           document.getElementById("editor-line-unit").value = product.baseUnitId;
           document.getElementById("editor-line-waste").value = productWastePercent(product);
+        }
+      });
+      document.getElementById("editor-line-recipe").addEventListener("change", function (event) {
+        const recipe = recipeByVersionId(event.target.value);
+        if (recipe) {
+          document.getElementById("editor-line-unit").value = recipe.yieldUnitId;
+          document.getElementById("editor-line-waste").value = 0;
         }
       });
       document.getElementById("editor-save").addEventListener("click", saveRecipeEditorHeader);
@@ -1442,6 +1474,29 @@ export function renderDashboard(): string {
         }
       });
       root.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function syncEditorLineKind() {
+      const kind = document.getElementById("editor-line-kind").value;
+      const productLabel = document.getElementById("editor-line-product-label");
+      const recipeLabelEl = document.getElementById("editor-line-recipe-label");
+      productLabel.style.display = kind === "product" ? "grid" : "none";
+      recipeLabelEl.style.display = kind === "recipe" ? "grid" : "none";
+
+      if (kind === "recipe") {
+        const recipe = recipeByVersionId(document.getElementById("editor-line-recipe").value);
+        if (recipe) {
+          document.getElementById("editor-line-unit").value = recipe.yieldUnitId;
+          document.getElementById("editor-line-waste").value = 0;
+        }
+        return;
+      }
+
+      const product = productById(document.getElementById("editor-line-product").value);
+      if (product) {
+        document.getElementById("editor-line-unit").value = product.baseUnitId;
+        document.getElementById("editor-line-waste").value = productWastePercent(product);
+      }
     }
 
     function renderRecipeEditorLines(detail) {
@@ -1465,16 +1520,20 @@ export function renderDashboard(): string {
         button.dataset.action = "delete-line";
         button.dataset.id = line.recipeLineId;
         action.appendChild(button);
+        const title = line.lineKind === "recipe"
+          ? "↳ " + line.productName + (line.childRecipeVersionCode ? " / " + line.childRecipeVersionCode : "")
+          : line.productName;
         return [
-          line.productName,
+          title,
           qty.format(Number(line.quantity)) + " " + line.unitCode,
           line.quantityMode === "prepared_output" ? "после обработки" : "со склада",
           money.format(Number(line.extraWastePercent)) + "%",
+          line.costStatus === "ok" ? "ok" : line.costStatus,
           moneyOrDash(line.lineCost, line.currency || detail.currency),
           action
         ];
       });
-      root.appendChild(table(["Продукт", "Кол-во", "Режим", "Потери", "Стоимость", ""], rows));
+      root.appendChild(table(["Состав", "Кол-во", "Режим", "Потери", "Статус", "Стоимость", ""], rows));
     }
 
     async function openRecipeEditor(recipeVersionId) {
@@ -1580,17 +1639,23 @@ export function renderDashboard(): string {
       setBusy(true);
 
       try {
+        const kind = document.getElementById("editor-line-kind").value;
+        const linePayload = {
+          organizationId: state.summary.organization.id,
+          quantity: Number(document.getElementById("editor-line-quantity").value),
+          unitId: document.getElementById("editor-line-unit").value,
+          quantityMode: document.getElementById("editor-line-mode").value,
+          extraWastePercent: optionalNumber(document.getElementById("editor-line-waste").value) || 0
+        };
+        if (kind === "recipe") {
+          linePayload.childRecipeVersionId = document.getElementById("editor-line-recipe").value;
+        } else {
+          linePayload.ingredientProductId = document.getElementById("editor-line-product").value;
+        }
         await fetchJson("/v1/recipes/" + encodeURIComponent(detail.recipeVersionId) + "/lines", {
           method: "POST",
           headers: authHeaders({ "content-type": "application/json" }),
-          body: JSON.stringify({
-            organizationId: state.summary.organization.id,
-            ingredientProductId: document.getElementById("editor-line-product").value,
-            quantity: Number(document.getElementById("editor-line-quantity").value),
-            unitId: document.getElementById("editor-line-unit").value,
-            quantityMode: document.getElementById("editor-line-mode").value,
-            extraWastePercent: optionalNumber(document.getElementById("editor-line-waste").value) || 0
-          })
+          body: JSON.stringify(linePayload)
         });
         await reloadRecipeEditor();
         document.getElementById("editor-message").textContent = "Строка состава добавлена.";
