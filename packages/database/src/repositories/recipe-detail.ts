@@ -212,7 +212,7 @@ export async function getRecipeCostDetail(
     [organizationId, recipeVersionId, options.locationId ?? null],
   );
   const lines = lineResult.rows.map(costLine);
-  const complete = lines.every((line) => line.costStatus === "ok" && line.lineCost !== null);
+  const complete = lines.length > 0 && lines.every((line) => line.costStatus === "ok" && line.lineCost !== null);
   const totalCost = complete
     ? lines.reduce((sum, line) => sum + (line.lineCost ?? 0), 0)
     : null;

@@ -20,6 +20,8 @@ export { listProducts, createProduct } from "./products.js";
 export type { CreateProductInput, ProductRecord } from "./products.js";
 export { getRecipeCostDetail } from "./recipe-detail.js";
 export type { RecipeCostDetailRecord, RecipeCostLineRecord, RecipeLineProcessingRecord } from "./recipe-detail.js";
+export { addRecipeLine, deleteRecipeLine, updateRecipeVersion } from "./recipe-editor.js";
+export type { RecipeLineInput, RecipeMutationResult, RecipeVersionUpdateInput } from "./recipe-editor.js";
 export { listRecipeVersions } from "./recipes.js";
 export type { RecipeVersionRecord } from "./recipes.js";
 export { getInventorySummary } from "./stock.js";

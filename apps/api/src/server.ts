@@ -2,9 +2,11 @@ import cors from "@fastify/cors";
 import { createKmrsReadonlyClient } from "@tagam-accounting/kmrs-bridge";
 import {
   bootstrapOrganization,
+  addRecipeLine,
   commitKmrsSaleWriteoff,
   createDatabasePool,
   createProduct,
+  deleteRecipeLine,
   getDemoSummary,
   getInventorySummary,
   getKmrsMenuItemAccessTarget,
@@ -24,6 +26,7 @@ import {
   listRecipeVersions,
   listUnits,
   unlinkKmrsMenuItemRecipe,
+  updateRecipeVersion,
 } from "@tagam-accounting/database";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { resolve } from "node:path";
@@ -76,6 +79,32 @@ type RecipeDetailParams = {
 type RecipeDetailQuery = {
   organizationId?: string;
   locationId?: string;
+};
+
+type RecipeVersionPatchBody = {
+  organizationId?: string;
+  yieldQuantity?: number;
+  yieldUnitId?: string;
+  targetFoodCostPercent?: number;
+  menuPrice?: number;
+  currency?: string;
+  instructions?: string;
+  status?: "draft" | "active" | "archived";
+};
+
+type RecipeLineParams = {
+  recipeVersionId: string;
+  recipeLineId: string;
+};
+
+type RecipeLineBody = {
+  organizationId?: string;
+  ingredientProductId?: string;
+  quantity?: number;
+  unitId?: string;
+  quantityMode?: "stock_input" | "prepared_output";
+  extraWastePercent?: number;
+  note?: string;
 };
 
 type InventorySummaryQuery = {
@@ -205,6 +234,16 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       message.includes("kmrsMerchantId is required") ||
       message.includes("restaurantSlug is required") ||
       message.includes("recipeVersionId is required") ||
+      message.includes("ingredientProductId is required") ||
+      message.includes("unitId is required") ||
+      message.includes("quantity must") ||
+      message.includes("yieldQuantity must") ||
+      message.includes("targetFoodCostPercent must") ||
+      message.includes("menuPrice must") ||
+      message.includes("extraWastePercent must") ||
+      message.includes("quantityMode must") ||
+      message.includes("status must") ||
+      message.includes("must contain at least one ingredient") ||
       message.includes("lines[") ||
       message.includes("lines must") ||
       message.includes("items must")
@@ -415,6 +454,76 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       }
 
       return { data: detail };
+    },
+  );
+
+  app.patch<{ Params: RecipeDetailParams; Body: RecipeVersionPatchBody }>(
+    "/v1/recipes/:recipeVersionId",
+    async (request) => {
+      const organizationId = request.body.organizationId ?? getHeaderOrganizationId(request);
+
+      if (!organizationId) {
+        throw new Error("organizationId is required");
+      }
+
+      const result = await updateRecipeVersion(pool, {
+        organizationId,
+        recipeVersionId: request.params.recipeVersionId,
+        ...(request.body.yieldQuantity !== undefined ? { yieldQuantity: request.body.yieldQuantity } : {}),
+        ...(request.body.yieldUnitId !== undefined ? { yieldUnitId: request.body.yieldUnitId } : {}),
+        ...(request.body.targetFoodCostPercent !== undefined
+          ? { targetFoodCostPercent: request.body.targetFoodCostPercent }
+          : {}),
+        ...(request.body.menuPrice !== undefined ? { menuPrice: request.body.menuPrice } : {}),
+        ...(request.body.currency !== undefined ? { currency: request.body.currency } : {}),
+        ...(request.body.instructions !== undefined ? { instructions: request.body.instructions } : {}),
+        ...(request.body.status !== undefined ? { status: request.body.status } : {}),
+      });
+
+      return { data: result };
+    },
+  );
+
+  app.post<{ Params: RecipeDetailParams; Body: RecipeLineBody }>(
+    "/v1/recipes/:recipeVersionId/lines",
+    async (request, reply) => {
+      const organizationId = request.body.organizationId ?? getHeaderOrganizationId(request);
+
+      if (!organizationId) {
+        throw new Error("organizationId is required");
+      }
+
+      const result = await addRecipeLine(pool, {
+        organizationId,
+        recipeVersionId: request.params.recipeVersionId,
+        ingredientProductId: request.body.ingredientProductId ?? "",
+        quantity: request.body.quantity ?? 0,
+        unitId: request.body.unitId ?? "",
+        ...(request.body.quantityMode !== undefined ? { quantityMode: request.body.quantityMode } : {}),
+        ...(request.body.extraWastePercent !== undefined ? { extraWastePercent: request.body.extraWastePercent } : {}),
+        ...(request.body.note !== undefined ? { note: request.body.note } : {}),
+      });
+
+      return reply.code(201).send({ data: result });
+    },
+  );
+
+  app.delete<{ Params: RecipeLineParams; Querystring: RecipeDetailQuery }>(
+    "/v1/recipes/:recipeVersionId/lines/:recipeLineId",
+    async (request) => {
+      const organizationId = request.query.organizationId ?? getHeaderOrganizationId(request);
+
+      if (!organizationId) {
+        throw new Error("organizationId is required");
+      }
+
+      const result = await deleteRecipeLine(pool, {
+        organizationId,
+        recipeVersionId: request.params.recipeVersionId,
+        recipeLineId: request.params.recipeLineId,
+      });
+
+      return { data: result };
     },
   );
 

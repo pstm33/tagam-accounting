@@ -88,7 +88,8 @@ export function renderDashboard(): string {
 
     button,
     input,
-    select {
+    select,
+    textarea {
       min-height: 36px;
       border: 1px solid var(--line-strong);
       border-radius: 8px;
@@ -98,9 +99,15 @@ export function renderDashboard(): string {
     }
 
     input,
-    select {
+    select,
+    textarea {
       width: 100%;
       padding: 7px 10px;
+    }
+
+    textarea {
+      min-height: 76px;
+      resize: vertical;
     }
 
     button {
@@ -275,6 +282,19 @@ export function renderDashboard(): string {
       background: #f9fafc;
     }
 
+    .category-row td {
+      background: #eef3f8;
+      color: var(--ink);
+      font-weight: 800;
+      text-transform: none;
+    }
+
+    .category-row small {
+      margin-left: 8px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
     .num {
       text-align: right;
       font-variant-numeric: tabular-nums;
@@ -419,6 +439,38 @@ export function renderDashboard(): string {
       min-width: 230px;
     }
 
+    .recipe-editor {
+      margin: 12px 0;
+    }
+
+    .editor-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+      padding: 14px;
+    }
+
+    .editor-head,
+    .editor-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .editor-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 12px 0;
+      align-items: end;
+    }
+
+    .editor-grid.wide {
+      grid-template-columns: 1.4fr .7fr .7fr .7fr .7fr auto;
+    }
+
     @media (max-width: 1100px) {
       .toolbar,
       .subtoolbar {
@@ -427,6 +479,11 @@ export function renderDashboard(): string {
 
       .connections {
         grid-template-columns: 1fr;
+      }
+
+      .editor-grid,
+      .editor-grid.wide {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
 
@@ -462,7 +519,9 @@ export function renderDashboard(): string {
       .metrics,
       .stats,
       .toolbar,
-      .subtoolbar {
+      .subtoolbar,
+      .editor-grid,
+      .editor-grid.wide {
         grid-template-columns: 1fr;
       }
 
@@ -540,6 +599,7 @@ export function renderDashboard(): string {
       </div>
 
       <div id="connections" class="connections"></div>
+      <div id="recipe-editor" class="recipe-editor"></div>
       <div id="kmrs-menu"></div>
     </section>
 
@@ -570,9 +630,12 @@ export function renderDashboard(): string {
     const state = {
       summary: null,
       locations: [],
+      units: [],
+      products: [],
       recipes: [],
       kmrsItems: [],
       connections: [],
+      selectedRecipeDetail: null,
       restaurantSlug: localStorage.getItem("tagamAccountingRestaurantSlug") || "7sky",
       kmrsBaseUrl: normalizeKmrsBaseUrl(localStorage.getItem("tagamAccountingKmrsBaseUrl") || DEFAULT_KMRS_BASE_URL),
       selectedLocationId: localStorage.getItem("tagamAccountingLocationId") || "",
@@ -695,6 +758,51 @@ export function renderDashboard(): string {
       }) || null;
     }
 
+    function productById(id) {
+      return state.products.find(function (product) { return product.id === id; }) || null;
+    }
+
+    function unitById(id) {
+      return state.units.find(function (unit) { return unit.id === id; }) || null;
+    }
+
+    function moneyOrDash(value, currency) {
+      return value === null || value === undefined ? "—" : money.format(value) + " " + currency;
+    }
+
+    function percentOrDash(value) {
+      return value === null || value === undefined ? "—" : money.format(value) + "%";
+    }
+
+    function fillSelect(select, items, getLabel) {
+      select.replaceChildren();
+      for (const item of items) {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = getLabel(item);
+        select.appendChild(option);
+      }
+    }
+
+    function kmrsCategoryKey(item) {
+      return item.kmrsCategoryId || "без категории";
+    }
+
+    function kmrsCategoryLabel(item) {
+      const name = text(item.kmrsCategoryName).trim();
+      const id = text(item.kmrsCategoryId).trim();
+
+      if (name && id) {
+        return name + " (категория " + id + ")";
+      }
+
+      if (name) {
+        return name;
+      }
+
+      return id ? "Категория " + id : "Без категории";
+    }
+
     function applyKmrsConnectionScope(connection) {
       if (!connection) {
         state.kmrsBaseUrl = normalizeKmrsBaseUrl(state.kmrsBaseUrl);
@@ -728,8 +836,22 @@ export function renderDashboard(): string {
       for (const id of ["save-key", "import-menu", "refresh-kmrs", "link-all-kmrs"]) {
         document.getElementById(id).disabled = value;
       }
+      for (const id of ["editor-save", "editor-activate", "editor-add-line"]) {
+        const button = document.getElementById(id);
+
+        if (button) {
+          button.disabled = value;
+        }
+      }
       for (const button of document.querySelectorAll("[data-action]")) {
-        button.disabled = value;
+        if (value) {
+          button.disabled = true;
+        } else if (button.dataset.action === "edit") {
+          const select = button.closest("tr").querySelector("select");
+          button.disabled = !select || !select.value;
+        } else {
+          button.disabled = false;
+        }
       }
     }
 
@@ -915,7 +1037,29 @@ export function renderDashboard(): string {
         return;
       }
 
-      const rows = items.map(function (item) {
+      const grouped = new Map();
+
+      for (const item of items) {
+        const key = kmrsCategoryKey(item);
+        const group = grouped.get(key) || {
+          label: kmrsCategoryLabel(item),
+          items: []
+        };
+        group.items.push(item);
+        grouped.set(key, group);
+      }
+
+      const rows = [];
+
+      for (const group of grouped.values()) {
+        const categoryCell = document.createElement("td");
+        categoryCell.colSpan = 6;
+        categoryCell.innerHTML = "<span></span><small></small>";
+        categoryCell.querySelector("span").textContent = group.label;
+        categoryCell.querySelector("small").textContent = group.items.length + " блюд";
+        rows.push([categoryCell]);
+
+        for (const item of group.items) {
         const name = document.createElement("td");
         name.className = "item-name";
         const title = document.createElement("div");
@@ -970,6 +1114,17 @@ export function renderDashboard(): string {
         linkButton.dataset.id = item.id;
         wrap.appendChild(linkButton);
 
+        const editButton = document.createElement("button");
+        editButton.className = "ghost";
+        editButton.type = "button";
+        editButton.textContent = "Открыть";
+        editButton.dataset.action = "edit";
+        editButton.disabled = !select.value;
+        wrap.appendChild(editButton);
+        select.addEventListener("change", function () {
+          editButton.disabled = state.busy || !select.value;
+        });
+
         const unlinkButton = document.createElement("button");
         unlinkButton.className = "danger";
         unlinkButton.type = "button";
@@ -980,18 +1135,309 @@ export function renderDashboard(): string {
         wrap.appendChild(unlinkButton);
         actions.appendChild(wrap);
 
-        return [
+        rows.push([
           name,
           money.format(Number(item.price || 0)) + " " + (item.currency || state.summary.organization.defaultCurrency),
           availability,
           linked,
           recipe,
           actions
-        ];
-      });
+        ]);
+        }
+      }
 
       root.appendChild(table(["Блюдо KMRS", "Цена", "Статус", "Техкарта", "Привязка", ""], rows));
+      for (const row of root.querySelectorAll("tbody tr")) {
+        if (row.children.length === 1) {
+          row.className = "category-row";
+        }
+      }
       renderConnections();
+    }
+
+    function renderRecipeEditor() {
+      const root = document.getElementById("recipe-editor");
+      const detail = state.selectedRecipeDetail;
+      root.replaceChildren();
+
+      if (!detail) {
+        return;
+      }
+
+      const panel = document.createElement("div");
+      panel.className = "editor-panel";
+      panel.innerHTML = [
+        '<div class="editor-head">',
+        '  <div><h3 id="editor-title"></h3><p id="editor-subtitle"></p></div>',
+        '  <span class="pill" id="editor-status"></span>',
+        '</div>',
+        '<div class="stats" id="editor-stats"></div>',
+        '<div class="editor-grid">',
+        '  <label>Выход<input id="editor-yield" type="number" min="0.001" step="0.001"></label>',
+        '  <label>Ед. выхода<select id="editor-yield-unit"></select></label>',
+        '  <label>Цена меню<input id="editor-price" type="number" min="0" step="0.001"></label>',
+        '  <label>Цель food cost %<input id="editor-target-food-cost" type="number" min="0.001" step="0.001"></label>',
+        '</div>',
+        '<label>Инструкции / заметки<textarea id="editor-instructions"></textarea></label>',
+        '<div class="editor-actions" style="margin-top:12px">',
+        '  <div></div>',
+        '  <div class="actions">',
+        '    <button class="ghost" id="editor-save" type="button">Сохранить</button>',
+        '    <button class="primary" id="editor-activate" type="button">Активировать</button>',
+        '  </div>',
+        '</div>',
+        '<h3 style="margin-top:16px">Состав</h3>',
+        '<div id="editor-lines"></div>',
+        '<div class="editor-grid wide">',
+        '  <label>Продукт<select id="editor-line-product"></select></label>',
+        '  <label>Кол-во<input id="editor-line-quantity" type="number" min="0.001" step="0.001" value="1"></label>',
+        '  <label>Ед.<select id="editor-line-unit"></select></label>',
+        '  <label>Режим<select id="editor-line-mode"><option value="stock_input">со склада</option><option value="prepared_output">после обработки</option></select></label>',
+        '  <label>Потери %<input id="editor-line-waste" type="number" min="0" step="0.001" value="0"></label>',
+        '  <button class="secondary" id="editor-add-line" type="button">Добавить</button>',
+        '</div>',
+        '<div id="editor-message" class="notice">Черновик можно наполнять составом и активировать после проверки.</div>'
+      ].join("");
+      root.appendChild(panel);
+
+      document.getElementById("editor-title").textContent = detail.recipeName + " / " + detail.versionCode;
+      document.getElementById("editor-subtitle").textContent = "Выход " + qty.format(Number(detail.yieldQuantity)) + " " + detail.yieldUnitCode;
+      document.getElementById("editor-status").textContent = recipeStatusLabel(detail.status);
+      document.getElementById("editor-status").className = detail.status === "active" ? "pill ok" : "pill warn";
+      document.getElementById("editor-yield").value = Number(detail.yieldQuantity);
+      document.getElementById("editor-price").value = detail.menuPrice === null ? "" : Number(detail.menuPrice);
+      document.getElementById("editor-target-food-cost").value = detail.targetFoodCostPercent === null ? "" : Number(detail.targetFoodCostPercent);
+      document.getElementById("editor-instructions").value = detail.instructions || "";
+
+      fillSelect(document.getElementById("editor-yield-unit"), state.units, function (unit) {
+        return unit.code + " — " + unit.name;
+      });
+      document.getElementById("editor-yield-unit").value = detail.yieldUnitId;
+      fillSelect(document.getElementById("editor-line-product"), state.products, function (product) {
+        return product.name;
+      });
+      fillSelect(document.getElementById("editor-line-unit"), state.units, function (unit) {
+        return unit.code;
+      });
+      const firstProduct = state.products[0] || null;
+      if (firstProduct) {
+        document.getElementById("editor-line-unit").value = firstProduct.baseUnitId;
+      }
+
+      document.getElementById("editor-stats").replaceChildren(
+        stat("Себестоимость", moneyOrDash(detail.totalCost, detail.currency)),
+        stat("Food cost", percentOrDash(detail.foodCostPercent)),
+        stat("Маржа", moneyOrDash(detail.grossMargin, detail.currency)),
+        stat("Рекоменд. цена", moneyOrDash(detail.recommendedMenuPrice, detail.currency))
+      );
+
+      renderRecipeEditorLines(detail);
+
+      document.getElementById("editor-line-product").addEventListener("change", function (event) {
+        const product = productById(event.target.value);
+        if (product) {
+          document.getElementById("editor-line-unit").value = product.baseUnitId;
+        }
+      });
+      document.getElementById("editor-save").addEventListener("click", saveRecipeEditorHeader);
+      document.getElementById("editor-activate").addEventListener("click", activateRecipeEditor);
+      document.getElementById("editor-add-line").addEventListener("click", addRecipeEditorLine);
+      document.getElementById("editor-lines").addEventListener("click", function (event) {
+        const button = event.target.closest("button[data-action='delete-line']");
+
+        if (button) {
+          deleteRecipeEditorLine(button.dataset.id);
+        }
+      });
+      root.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function renderRecipeEditorLines(detail) {
+      const root = document.getElementById("editor-lines");
+      root.replaceChildren();
+
+      if (detail.lines.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "notice";
+        empty.textContent = "Состав пока пустой. Добавьте продукты ниже.";
+        root.appendChild(empty);
+        return;
+      }
+
+      const rows = detail.lines.map(function (line) {
+        const action = document.createElement("td");
+        const button = document.createElement("button");
+        button.className = "danger";
+        button.type = "button";
+        button.textContent = "Удалить";
+        button.dataset.action = "delete-line";
+        button.dataset.id = line.recipeLineId;
+        action.appendChild(button);
+        return [
+          line.productName,
+          qty.format(Number(line.quantity)) + " " + line.unitCode,
+          line.quantityMode === "prepared_output" ? "после обработки" : "со склада",
+          money.format(Number(line.extraWastePercent)) + "%",
+          moneyOrDash(line.lineCost, line.currency || detail.currency),
+          action
+        ];
+      });
+      root.appendChild(table(["Продукт", "Кол-во", "Режим", "Потери", "Стоимость", ""], rows));
+    }
+
+    async function openRecipeEditor(recipeVersionId) {
+      if (!recipeVersionId) {
+        setNotice("Выберите техкарту.", true);
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        const org = encodeURIComponent(state.summary.organization.id);
+        const location = encodeURIComponent(currentLocationId());
+        const detail = await fetchJson("/v1/recipes/" + encodeURIComponent(recipeVersionId) + "?organizationId=" + org + "&locationId=" + location);
+        state.selectedRecipeDetail = detail.data;
+        renderRecipeEditor();
+      } catch (error) {
+        setNotice(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function reloadRecipeEditor() {
+      if (!state.selectedRecipeDetail) {
+        return;
+      }
+
+      await openRecipeEditor(state.selectedRecipeDetail.recipeVersionId);
+    }
+
+    async function saveRecipeEditorHeader() {
+      const detail = state.selectedRecipeDetail;
+
+      if (!detail) {
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        await fetchJson("/v1/recipes/" + encodeURIComponent(detail.recipeVersionId), {
+          method: "PATCH",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            organizationId: state.summary.organization.id,
+            yieldQuantity: Number(document.getElementById("editor-yield").value),
+            yieldUnitId: document.getElementById("editor-yield-unit").value,
+            menuPrice: optionalNumber(document.getElementById("editor-price").value),
+            targetFoodCostPercent: optionalNumber(document.getElementById("editor-target-food-cost").value),
+            currency: detail.currency || state.summary.organization.defaultCurrency,
+            instructions: document.getElementById("editor-instructions").value
+          })
+        });
+        await reloadRecipeEditor();
+        await refreshRecipes();
+        document.getElementById("editor-message").textContent = "Шапка техкарты сохранена.";
+      } catch (error) {
+        document.getElementById("editor-message").textContent = error.message;
+        document.getElementById("editor-message").className = "notice error";
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function activateRecipeEditor() {
+      const detail = state.selectedRecipeDetail;
+
+      if (!detail) {
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        await fetchJson("/v1/recipes/" + encodeURIComponent(detail.recipeVersionId), {
+          method: "PATCH",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            organizationId: state.summary.organization.id,
+            status: "active"
+          })
+        });
+        await reloadRecipeEditor();
+        await refreshRecipes();
+        await refreshKmrs();
+        document.getElementById("editor-message").textContent = "Техкарта активирована.";
+      } catch (error) {
+        document.getElementById("editor-message").textContent = error.message;
+        document.getElementById("editor-message").className = "notice error";
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function addRecipeEditorLine() {
+      const detail = state.selectedRecipeDetail;
+
+      if (!detail) {
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        await fetchJson("/v1/recipes/" + encodeURIComponent(detail.recipeVersionId) + "/lines", {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            organizationId: state.summary.organization.id,
+            ingredientProductId: document.getElementById("editor-line-product").value,
+            quantity: Number(document.getElementById("editor-line-quantity").value),
+            unitId: document.getElementById("editor-line-unit").value,
+            quantityMode: document.getElementById("editor-line-mode").value,
+            extraWastePercent: optionalNumber(document.getElementById("editor-line-waste").value) || 0
+          })
+        });
+        await reloadRecipeEditor();
+        document.getElementById("editor-message").textContent = "Строка состава добавлена.";
+      } catch (error) {
+        document.getElementById("editor-message").textContent = error.message;
+        document.getElementById("editor-message").className = "notice error";
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function deleteRecipeEditorLine(recipeLineId) {
+      const detail = state.selectedRecipeDetail;
+
+      if (!detail) {
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        const org = encodeURIComponent(state.summary.organization.id);
+        await fetchJson("/v1/recipes/" + encodeURIComponent(detail.recipeVersionId) + "/lines/" + encodeURIComponent(recipeLineId) + "?organizationId=" + org, {
+          method: "DELETE",
+          headers: authHeaders()
+        });
+        await reloadRecipeEditor();
+        document.getElementById("editor-message").textContent = "Строка состава удалена.";
+      } catch (error) {
+        document.getElementById("editor-message").textContent = error.message;
+        document.getElementById("editor-message").className = "notice error";
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function optionalNumber(value) {
+      const trimmed = text(value).trim();
+      return trimmed ? Number(trimmed) : undefined;
     }
 
     async function refreshKmrs() {
@@ -1178,6 +1624,9 @@ export function renderDashboard(): string {
 
         if (button.dataset.action === "link") {
           linkMenuItem(button);
+        } else if (button.dataset.action === "edit") {
+          const recipeVersionId = button.closest("tr").querySelector("select").value;
+          openRecipeEditor(recipeVersionId);
         } else if (button.dataset.action === "unlink") {
           unlinkMenuItem(button);
         }
@@ -1211,6 +1660,7 @@ export function renderDashboard(): string {
         };
         const result = await Promise.all([
           fetchJson("/v1/catalog?organizationId=" + org),
+          fetchJson("/v1/products?organizationId=" + org + "&limit=500"),
           fetchJson("/v1/recipes?organizationId=" + org + "&limit=500"),
           fetchJson("/v1/recipes/" + recipeId + "?organizationId=" + org),
           fetchJson("/v1/inventory/summary?organizationId=" + org),
@@ -1221,10 +1671,12 @@ export function renderDashboard(): string {
           })
         ]);
         state.locations = result[0].data.locations;
-        state.recipes = result[1].data;
-        renderRecipe(result[2].data);
-        renderInventory(result[3].data, summary.organization.defaultCurrency);
-        renderWriteoff(result[4].data);
+        state.units = result[0].data.units;
+        state.products = result[1].data;
+        state.recipes = result[2].data;
+        renderRecipe(result[3].data);
+        renderInventory(result[4].data, summary.organization.defaultCurrency);
+        renderWriteoff(result[5].data);
         renderKmrsControls();
         wireEvents();
         renderKmrsMenu();

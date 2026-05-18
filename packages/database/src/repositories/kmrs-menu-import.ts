@@ -38,6 +38,7 @@ export type KmrsImportedMenuItemRecord = {
   kmrsConnectionId: string | null;
   kmrsItemId: string;
   kmrsCategoryId: string | null;
+  kmrsCategoryName: string | null;
   name: string;
   description: string | null;
   price: string | null;
@@ -379,6 +380,7 @@ export async function listKmrsImportedMenuItems(
         kmi.kmrs_connection_id as "kmrsConnectionId",
         kmi.kmrs_item_id as "kmrsItemId",
         kmi.kmrs_category_id as "kmrsCategoryId",
+        kmi.raw_payload#>>'{category,category_name}' as "kmrsCategoryName",
         kmi.name,
         kmi.description,
         kmi.price,

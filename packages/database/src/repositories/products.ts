@@ -29,7 +29,7 @@ export async function listProducts(
   organizationId: string,
   options: { limit?: number; search?: string } = {},
 ): Promise<ProductRecord[]> {
-  const limit = Math.min(options.limit ?? 50, 200);
+  const limit = Math.min(options.limit ?? 50, 500);
   const search = options.search?.trim();
   const params: unknown[] = [organizationId, limit];
   const searchClause = search ? "and p.name ilike $3" : "";

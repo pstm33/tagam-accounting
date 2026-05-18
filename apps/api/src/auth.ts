@@ -58,6 +58,9 @@ export type AuthResult =
 const protectedRoutes = [
   { method: "POST", path: "/v1/bootstrap" },
   { method: "POST", path: "/v1/products" },
+  { method: "PATCH", pathPrefix: "/v1/recipes/" },
+  { method: "POST", pathPrefix: "/v1/recipes/" },
+  { method: "DELETE", pathPrefix: "/v1/recipes/" },
   { method: "GET", path: "/v1/kmrs/connections" },
   { method: "GET", path: "/v1/kmrs/menu-items" },
   { method: "POST", path: "/v1/kmrs/menu-items/link-suggested" },
