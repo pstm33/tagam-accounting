@@ -13,6 +13,7 @@
     "db:migrate": "tsx packages/database/src/migrate.ts",
     "db:seed:demo": "tsx packages/database/src/seed-demo.ts",
     "db:smoke": "tsx packages/database/src/smoke.ts",
+    "seed:starter-ttk": "node scripts/seed-starter-menu-ttk.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
