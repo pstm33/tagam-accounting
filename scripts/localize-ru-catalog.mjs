@@ -114,6 +114,21 @@ const processingRenames = [
   ["Flat-top frying", "Жарка на плите"],
 ];
 
+const prepInstructions = [
+  ["Рис для суши", "Стартовая карта заготовки: рис для суши. Вода не учитывается в себестоимости; выход нужно проверить после пробной варки."],
+  ["Рис отварной", "Стартовая карта заготовки: отварной рис для WOK и жареного риса. Вода не учитывается в себестоимости."],
+  ["Спайси соус", "Стартовая карта заготовки: спайси-соус на основе майонеза."],
+  ["Кляр темпура", "Стартовая карта заготовки: кляр темпура. Вода и лед не учитываются в себестоимости."],
+  ["Соус для запекания роллов", "Стартовая карта заготовки: соус-шапка для запеченных роллов."],
+  ["Тесто для пиццы", "Стартовая карта заготовки: тесто для пиццы. Вода не учитывается в себестоимости."],
+  ["Соус для пиццы", "Стартовая карта заготовки: томатный соус для пиццы."],
+  ["WOK соус", "Стартовая карта заготовки: универсальный соус WOK."],
+  ["Основа мисо супа", "Стартовая карта заготовки: концентрированная основа мисо-супа. Вода добавляется при отдаче и не учитывается в себестоимости."],
+  ["Основа том ям", "Стартовая карта заготовки: концентрированная основа том ям."],
+  ["Куриный бульон", "Стартовая карта заготовки: базовый куриный бульон. Вода не учитывается в себестоимости."],
+  ["Маринад для мангала", "Стартовая карта заготовки: базовый маринад для мангала."],
+];
+
 const categoryMoves = [
   ["Bakery", "Сырье: бакалея"],
   ["Dairy", "Сырье: молочные продукты"],
@@ -146,6 +161,7 @@ try {
     categoriesDeleted: 0,
     categoriesRenamed: 0,
     instructionsLocalized: await localizeInstructions(orgId),
+    prepInstructionsLocalized: await localizePrepInstructions(orgId),
   };
 
   for (const [from, to] of categoryMoves) {
@@ -292,4 +308,26 @@ async function localizeInstructions(orgId) {
   );
 
   return result.rowCount ?? 0;
+}
+
+async function localizePrepInstructions(orgId) {
+  let changed = 0;
+
+  for (const [recipeName, instruction] of prepInstructions) {
+    const result = await client.query(
+      `
+        update recipe_versions rv
+        set instructions = $3
+        from recipes r
+        where r.id = rv.recipe_id
+          and r.organization_id = $1
+          and r.name = $2
+          and coalesce(rv.instructions, '') <> $3
+      `,
+      [orgId, recipeName, instruction],
+    );
+    changed += result.rowCount ?? 0;
+  }
+
+  return changed;
 }

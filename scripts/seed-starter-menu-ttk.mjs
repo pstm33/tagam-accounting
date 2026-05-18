@@ -239,7 +239,7 @@ const prepRecipes = [
       gross(P.sugar, 28),
       gross(P.salt, 7),
     ],
-    note: "Starter prep card: seasoned sushi rice. Water is not costed here; adjust after test cooking.",
+    note: "Стартовая карта заготовки: рис для суши. Вода не учитывается в себестоимости; выход нужно проверить после пробной варки.",
   },
   {
     name: R.plainRice,
@@ -247,7 +247,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.sushiRice, 430), gross(P.salt, 5)],
-    note: "Starter prep card: boiled rice for WOK and fried rice. Water is not costed.",
+    note: "Стартовая карта заготовки: отварной рис для WOK и жареного риса. Вода не учитывается в себестоимости.",
   },
   {
     name: R.spicySauce,
@@ -255,7 +255,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.mayo, 720), gross(P.sriracha, 180), gross(P.sesameOil, 35), gross(P.sugar, 25), gross(P.salt, 8)],
-    note: "Starter prep card: spicy mayo sauce.",
+    note: "Стартовая карта заготовки: спайси-соус на основе майонеза.",
   },
   {
     name: R.tempuraBatter,
@@ -263,7 +263,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.tempuraFlour, 650), gross(P.egg, 120), gross(P.salt, 8)],
-    note: "Starter prep card: tempura batter. Water/ice are not costed.",
+    note: "Стартовая карта заготовки: кляр темпура. Вода и лед не учитываются в себестоимости.",
   },
   {
     name: R.bakedRollSauce,
@@ -271,7 +271,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.mayo, 550), gross(P.creamCheese, 260), gross(P.masago, 90), gross(P.sweetChili, 90), gross(P.salt, 5)],
-    note: "Starter prep card: baked roll topping sauce.",
+    note: "Стартовая карта заготовки: соус-шапка для запеченных роллов.",
   },
   {
     name: R.pizzaDough,
@@ -279,7 +279,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.flour, 625), gross(P.oil, 35), gross(P.sugar, 10), gross(P.salt, 13), gross(P.yeast, 8)],
-    note: "Starter prep card: pizza dough. Water is not costed.",
+    note: "Стартовая карта заготовки: тесто для пиццы. Вода не учитывается в себестоимости.",
   },
   {
     name: R.pizzaSauce,
@@ -287,7 +287,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.tomatoPuree, 900), gross(P.oil, 35), gross(P.garlic, 20), gross(P.sugar, 15), gross(P.salt, 10), gross(P.basil, 8)],
-    note: "Starter prep card: tomato pizza sauce.",
+    note: "Стартовая карта заготовки: томатный соус для пиццы.",
   },
   {
     name: R.wokSauce,
@@ -295,7 +295,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.soy, 420), gross(P.teriyaki, 260), gross(P.oyster, 170), gross(P.sesameOil, 55), gross(P.ginger, 35), gross(P.garlic, 30), gross(P.sugar, 25)],
-    note: "Starter prep card: universal WOK sauce.",
+    note: "Стартовая карта заготовки: универсальный соус WOK.",
   },
   {
     name: R.misoBase,
@@ -303,7 +303,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.miso, 135), gross(P.dashi, 25), gross(P.soy, 35), gross(P.wakame, 18)],
-    note: "Starter prep card: concentrated miso soup base. Water is added at service and not costed.",
+    note: "Стартовая карта заготовки: концентрированная основа мисо-супа. Вода добавляется при отдаче и не учитывается в себестоимости.",
   },
   {
     name: R.tomYumBase,
@@ -311,7 +311,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.tomYum, 180), gross(P.coconutMilk, 360), gross(P.lime, 55), gross(P.lemongrass, 45), gross(P.fishSauce, 45), gross(P.chili, 18), gross(P.ginger, 25)],
-    note: "Starter prep card: concentrated tom yum base.",
+    note: "Стартовая карта заготовки: концентрированная основа том ям.",
   },
   {
     name: R.chickenBroth,
@@ -319,7 +319,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [net(P.chicken, 280, 8), net(P.onion, 80, 10), net(P.carrot, 80, 10), gross(P.salt, 8), gross(P.spices, 4)],
-    note: "Starter prep card: generic chicken broth. Water is not costed.",
+    note: "Стартовая карта заготовки: базовый куриный бульон. Вода не учитывается в себестоимости.",
   },
   {
     name: R.grillMarinade,
@@ -327,7 +327,7 @@ const prepRecipes = [
     yieldQuantity: 1000,
     yieldUnit: "g",
     lines: [gross(P.oil, 350), gross(P.onion, 220), gross(P.garlic, 55), gross(P.soy, 90), gross(P.lime, 55), gross(P.spices, 35), gross(P.salt, 20)],
-    note: "Starter prep card: generic grill marinade.",
+    note: "Стартовая карта заготовки: базовый маринад для мангала.",
   },
 ];
 
