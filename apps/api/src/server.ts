@@ -7,11 +7,14 @@ import {
   createDatabasePool,
   createProduct,
   createProductCategory,
+  createPurchaseReceipt,
   createRecipe,
+  createSupplier,
   deleteRecipeLine,
   getDemoSummary,
   getInventorySummary,
   getKmrsMenuItemAccessTarget,
+  getPurchasingOverview,
   getRecipeCostDetail,
   importKmrsMenuSnapshot,
   linkKmrsMenuItemToRecipe,
@@ -26,6 +29,7 @@ import {
   listProducts,
   listProductCategories,
   listRecipeVersions,
+  listSuppliers,
   listUnits,
   unlinkKmrsMenuItemRecipe,
   updateRecipeVersion,
@@ -134,6 +138,46 @@ type InventorySummaryQuery = {
   organizationId?: string;
   locationId?: string;
   limit?: string;
+};
+
+type SupplierListQuery = {
+  organizationId?: string;
+  limit?: string;
+};
+
+type PurchasingOverviewQuery = {
+  organizationId?: string;
+  locationId?: string;
+  limit?: string;
+};
+
+type CreateSupplierBody = {
+  organizationId?: string;
+  name?: string;
+  taxId?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  paymentTerms?: string;
+  reliabilityScore?: number;
+};
+
+type CreatePurchaseReceiptBody = {
+  organizationId?: string;
+  locationId?: string;
+  supplierId?: string;
+  documentNumber?: string;
+  invoiceNumber?: string;
+  receivedAt?: string;
+  invoiceDate?: string;
+  currency?: string;
+  lines?: Array<{
+    productId?: string;
+    quantity?: number;
+    unitId?: string;
+    unitPrice?: number;
+    lotCode?: string;
+  }>;
 };
 
 type BootstrapBody = {
@@ -261,9 +305,11 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       message.includes("kmrsMerchantId is required") ||
       message.includes("restaurantSlug is required") ||
       message.includes("recipeVersionId is required") ||
+      message.includes("supplierId is required") ||
       message.includes("productType must") ||
       message.includes("inventoryPolicy must") ||
       message.includes("defaultWastePercent must") ||
+      message.includes("reliabilityScore must") ||
       message.includes("recipeType must") ||
       message.includes("parentId must") ||
       message.includes("ingredientProductId is required") ||
@@ -278,7 +324,10 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       message.includes("extraWastePercent must") ||
       message.includes("quantityMode must") ||
       message.includes("status must") ||
+      message.includes("unitPrice must") ||
+      message.includes("Unit conversion was not found") ||
       message.includes("must contain at least one ingredient") ||
+      message.includes("purchase line") ||
       message.includes("lines[") ||
       message.includes("lines must") ||
       message.includes("items must")
@@ -293,7 +342,9 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     if (
       message.includes("Product name already exists") ||
       message.includes("Product category name already exists") ||
+      message.includes("Supplier name already exists") ||
       message.includes("Recipe name already exists") ||
+      message.includes("Receiving document number already exists") ||
       message.includes("Cannot commit writeoff") ||
       message.includes("already has a committed writeoff") ||
       message.startsWith("Not enough stock")
@@ -628,6 +679,88 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     });
 
     return { data: rows };
+  });
+
+  app.get<{ Querystring: SupplierListQuery }>("/v1/suppliers", async (request) => {
+    const organizationId = getOrganizationId(request);
+    const suppliers = await listSuppliers(pool, organizationId, {
+      limit: parseLimit(request.query.limit, 100),
+    });
+
+    return { data: suppliers };
+  });
+
+  app.post<{ Body: CreateSupplierBody }>("/v1/suppliers", async (request, reply) => {
+    const body = request.body;
+    const organizationId = body.organizationId ?? getHeaderOrganizationId(request);
+
+    if (!organizationId) {
+      return reply.code(400).send({ error: "organizationId is required" });
+    }
+
+    if (!body.name?.trim()) {
+      return reply.code(400).send({ error: "name is required" });
+    }
+
+    const supplier = await createSupplier(pool, {
+      organizationId,
+      name: body.name.trim(),
+      ...(body.taxId !== undefined ? { taxId: body.taxId } : {}),
+      ...(body.phone !== undefined ? { phone: body.phone } : {}),
+      ...(body.email !== undefined ? { email: body.email } : {}),
+      ...(body.address !== undefined ? { address: body.address } : {}),
+      ...(body.paymentTerms !== undefined ? { paymentTerms: body.paymentTerms } : {}),
+      ...(body.reliabilityScore !== undefined ? { reliabilityScore: body.reliabilityScore } : {}),
+    });
+
+    return reply.code(201).send({ data: supplier });
+  });
+
+  app.get<{ Querystring: PurchasingOverviewQuery }>("/v1/purchasing/overview", async (request) => {
+    const organizationId = getOrganizationId(request);
+    const overview = await getPurchasingOverview(pool, organizationId, {
+      limit: parseLimit(request.query.limit, 50),
+      ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+    });
+
+    return { data: overview };
+  });
+
+  app.post<{ Body: CreatePurchaseReceiptBody }>("/v1/purchasing/receipts", async (request, reply) => {
+    const body = request.body;
+    const organizationId = body.organizationId ?? getHeaderOrganizationId(request);
+
+    if (!organizationId) {
+      return reply.code(400).send({ error: "organizationId is required" });
+    }
+
+    if (!body.locationId?.trim()) {
+      return reply.code(400).send({ error: "locationId is required" });
+    }
+
+    if (!body.supplierId?.trim()) {
+      return reply.code(400).send({ error: "supplierId is required" });
+    }
+
+    const result = await createPurchaseReceipt(pool, {
+      organizationId,
+      locationId: body.locationId.trim(),
+      supplierId: body.supplierId.trim(),
+      ...(body.documentNumber !== undefined ? { documentNumber: body.documentNumber } : {}),
+      ...(body.invoiceNumber !== undefined ? { invoiceNumber: body.invoiceNumber } : {}),
+      ...(body.receivedAt !== undefined ? { receivedAt: body.receivedAt } : {}),
+      ...(body.invoiceDate !== undefined ? { invoiceDate: body.invoiceDate } : {}),
+      ...(body.currency !== undefined ? { currency: body.currency } : {}),
+      lines: (body.lines ?? []).map((line) => ({
+        productId: line.productId ?? "",
+        quantity: line.quantity ?? 0,
+        unitId: line.unitId ?? "",
+        unitPrice: line.unitPrice ?? 0,
+        ...(line.lotCode !== undefined ? { lotCode: line.lotCode } : {}),
+      })),
+    });
+
+    return reply.code(201).send({ data: result });
   });
 
   app.get<{ Querystring: KmrsSyncRunsQuery }>("/v1/kmrs/sync-runs", async (request, reply) => {

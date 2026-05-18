@@ -28,6 +28,23 @@ export { createRecipe, listRecipeVersions } from "./recipes.js";
 export type { CreateRecipeInput, RecipeVersionRecord } from "./recipes.js";
 export { getInventorySummary } from "./stock.js";
 export type { InventorySummaryRow } from "./stock.js";
+export {
+  createPurchaseReceipt,
+  createSupplier,
+  getPurchasingOverview,
+  listSuppliers,
+} from "./purchasing.js";
+export type {
+  CreatePurchaseReceiptInput,
+  CreatePurchaseReceiptLineInput,
+  CreateSupplierInput,
+  InvoiceDocumentRecord,
+  PurchaseReceiptResult,
+  PurchasingOverviewRecord,
+  ReceivingDocumentRecord,
+  SupplierPriceRecord,
+  SupplierRecord,
+} from "./purchasing.js";
 export { listKmrsSyncRuns } from "./kmrs-sync.js";
 export type { KmrsSyncRunRecord } from "./kmrs-sync.js";
 export {

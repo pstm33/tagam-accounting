@@ -59,6 +59,46 @@ export function renderDashboard(): string {
       align-items: center;
     }
 
+    .location-switch {
+      min-width: 260px;
+      max-width: 360px;
+      color: var(--muted);
+    }
+
+    .location-switch select {
+      min-height: 32px;
+    }
+
+    .module-nav {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      gap: 8px;
+      margin: 14px 0 0;
+      padding: 10px 0;
+      overflow-x: auto;
+      background: var(--bg);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .module-tab {
+      border-color: transparent;
+      background: transparent;
+      color: var(--muted);
+      min-height: 34px;
+    }
+
+    .module-tab.active {
+      border-color: var(--teal);
+      background: var(--green-soft);
+      color: var(--teal);
+    }
+
+    .module-view[hidden] {
+      display: none !important;
+    }
+
     h1 {
       margin: 0;
       font-size: 30px;
@@ -473,7 +513,10 @@ export function renderDashboard(): string {
 
     .recipe-form,
     .product-form,
-    .category-form {
+    .category-form,
+    .supplier-form,
+    .receipt-form,
+    .receipt-line-form {
       display: grid;
       gap: 10px;
       align-items: end;
@@ -492,6 +535,26 @@ export function renderDashboard(): string {
       grid-template-columns: 1fr 1fr auto 1fr;
     }
 
+    .supplier-form {
+      grid-template-columns: 1fr 1fr 1fr auto;
+    }
+
+    .receipt-form {
+      grid-template-columns: 1fr .75fr .75fr .55fr;
+    }
+
+    .receipt-line-form {
+      grid-template-columns: 1.2fr .55fr .55fr .65fr auto;
+    }
+
+    .module-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+      align-items: start;
+    }
+
     @media (max-width: 1100px) {
       .toolbar,
       .subtoolbar {
@@ -506,7 +569,11 @@ export function renderDashboard(): string {
       .editor-grid.wide,
       .recipe-form,
       .product-form,
-      .category-form {
+      .category-form,
+      .supplier-form,
+      .receipt-form,
+      .receipt-line-form,
+      .module-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
@@ -548,7 +615,11 @@ export function renderDashboard(): string {
       .editor-grid.wide,
       .recipe-form,
       .product-form,
-      .category-form {
+      .category-form,
+      .supplier-form,
+      .receipt-form,
+      .receipt-line-form,
+      .module-grid {
         grid-template-columns: 1fr;
       }
 
@@ -571,11 +642,25 @@ export function renderDashboard(): string {
         <p id="subtitle">Склад, техкарты, ужарка и себестоимость для ресторанного KMRS.</p>
       </div>
       <div class="header-actions">
+        <label class="location-switch">Заведение
+          <select id="global-location"></select>
+        </label>
         <button class="ghost" id="logout" type="button">Выйти</button>
         <div id="status" class="status">Загрузка</div>
       </div>
     </header>
 
+    <nav class="module-nav" id="module-nav" aria-label="Разделы учета">
+      <button class="module-tab active" type="button" data-module="overview">Обзор</button>
+      <button class="module-tab" type="button" data-module="directories">Справочники</button>
+      <button class="module-tab" type="button" data-module="recipes">Техкарты</button>
+      <button class="module-tab" type="button" data-module="purchases">Закупки</button>
+      <button class="module-tab" type="button" data-module="kmrs">KMRS</button>
+      <button class="module-tab" type="button" data-module="writeoffs">Списания</button>
+      <button class="module-tab" type="button" data-module="api">API</button>
+    </nav>
+
+    <section class="module-view" data-module-view="overview">
     <section class="grid metrics" id="metrics"></section>
 
     <section class="grid two">
@@ -595,8 +680,9 @@ export function renderDashboard(): string {
         <div id="inventory"></div>
       </div>
     </section>
+    </section>
 
-    <section class="card" style="margin-top:16px">
+    <section class="card module-view" data-module-view="directories" hidden>
       <div class="section-head">
         <h2>Продукты</h2>
         <span class="pill ok" id="products-badge">Справочник</span>
@@ -656,10 +742,10 @@ export function renderDashboard(): string {
       <div id="products-list"></div>
     </section>
 
-    <section class="card" style="margin-top:16px">
+    <section class="card module-view" data-module-view="recipes" hidden>
       <div class="section-head">
-        <h2>KMRS меню и техкарты</h2>
-        <span class="pill warn" id="kmrs-badge">KMRS</span>
+        <h2>Техкарты</h2>
+        <span class="pill ok">Производство</span>
       </div>
 
       <div class="recipe-form">
@@ -692,6 +778,74 @@ export function renderDashboard(): string {
         <button class="primary" id="add-recipe" type="button">Создать</button>
       </div>
       <div id="recipe-message" class="notice" style="margin-bottom:12px">Можно создать блюдо, полуфабрикат или вложенную заготовку.</div>
+      <div id="recipe-editor" class="recipe-editor"></div>
+    </section>
+
+    <section class="card module-view" data-module-view="purchases" hidden>
+      <div class="section-head">
+        <h2>Закупки и накладные</h2>
+        <span class="pill ok" id="purchases-badge">Закупки</span>
+      </div>
+
+      <div class="supplier-form">
+        <label>Новый поставщик
+          <input id="supplier-name" autocomplete="off" placeholder="Название поставщика">
+        </label>
+        <label>Телефон
+          <input id="supplier-phone" autocomplete="off" placeholder="+993...">
+        </label>
+        <label>Условия
+          <input id="supplier-terms" autocomplete="off" placeholder="оплата, доставка, отсрочка">
+        </label>
+        <button class="ghost" id="add-supplier" type="button">Создать</button>
+      </div>
+      <div id="supplier-message" class="notice" style="margin-bottom:12px">Готово.</div>
+
+      <div class="receipt-form">
+        <label>Поставщик
+          <select id="receipt-supplier"></select>
+        </label>
+        <label>Дата прихода
+          <input id="receipt-date" type="date">
+        </label>
+        <label>Накладная
+          <input id="receipt-number" autocomplete="off" placeholder="№ документа">
+        </label>
+        <label>Счет
+          <input id="receipt-invoice" autocomplete="off" placeholder="№ счета">
+        </label>
+      </div>
+
+      <div class="receipt-line-form">
+        <label>Продукт
+          <select id="receipt-product"></select>
+        </label>
+        <label>Кол-во
+          <input id="receipt-quantity" type="number" min="0.001" step="0.001" value="1">
+        </label>
+        <label>Ед.
+          <select id="receipt-unit"></select>
+        </label>
+        <label>Цена
+          <input id="receipt-price" type="number" min="0" step="0.001" value="0">
+        </label>
+        <button class="ghost" id="add-receipt-line" type="button">Добавить строку</button>
+      </div>
+
+      <div id="receipt-message" class="notice" style="margin-bottom:12px">Добавьте строки и сохраните приход.</div>
+      <div id="receipt-draft"></div>
+      <div class="actions" style="justify-content:flex-start;margin:12px 0">
+        <button class="primary" id="save-receipt" type="button">Сохранить накладную</button>
+        <button class="ghost" id="clear-receipt" type="button">Очистить</button>
+      </div>
+      <div id="purchasing-overview"></div>
+    </section>
+
+    <section class="card module-view" data-module-view="kmrs" hidden>
+      <div class="section-head">
+        <h2>KMRS синхронизация</h2>
+        <span class="pill warn" id="kmrs-badge">KMRS</span>
+      </div>
 
       <div class="toolbar">
         <label>Заведение
@@ -717,11 +871,10 @@ export function renderDashboard(): string {
       </div>
 
       <div id="connections" class="connections"></div>
-      <div id="recipe-editor" class="recipe-editor"></div>
       <div id="kmrs-menu"></div>
     </section>
 
-    <section class="card" style="margin-top:16px">
+    <section class="card module-view" data-module-view="writeoffs" hidden>
       <div class="section-head">
         <h2>Списание продажи из KMRS</h2>
         <span class="pill ok">Preview</span>
@@ -729,7 +882,7 @@ export function renderDashboard(): string {
       <div id="writeoff"></div>
     </section>
 
-    <section class="card" style="margin-top:16px">
+    <section class="card module-view" data-module-view="api" hidden>
       <h2>API</h2>
       <div class="links" id="links"></div>
     </section>
@@ -755,9 +908,12 @@ export function renderDashboard(): string {
       kmrsItems: [],
       connections: [],
       selectedRecipeDetail: null,
+      purchasing: { suppliers: [], receivingDocuments: [], invoiceDocuments: [], latestPrices: [] },
+      purchaseDraftLines: [],
       restaurantSlug: localStorage.getItem("tagamAccountingRestaurantSlug") || "7sky",
       kmrsBaseUrl: normalizeKmrsBaseUrl(localStorage.getItem("tagamAccountingKmrsBaseUrl") || DEFAULT_KMRS_BASE_URL),
       selectedLocationId: localStorage.getItem("tagamAccountingLocationId") || "",
+      activeModule: localStorage.getItem("tagamAccountingModule") || "overview",
       busy: false
     };
 
@@ -836,7 +992,26 @@ export function renderDashboard(): string {
     }
 
     function currentLocationId() {
-      return document.getElementById("kmrs-location").value || state.selectedLocationId || state.summary.primaryLocation.id;
+      const globalSelect = document.getElementById("global-location");
+      const kmrsSelect = document.getElementById("kmrs-location");
+      return (globalSelect && globalSelect.value) ||
+        (kmrsSelect && kmrsSelect.value) ||
+        state.selectedLocationId ||
+        state.summary.primaryLocation.id;
+    }
+
+    function switchModule(module) {
+      const target = document.querySelector('[data-module-view="' + module + '"]') ? module : "overview";
+      state.activeModule = target;
+      localStorage.setItem("tagamAccountingModule", target);
+
+      for (const view of document.querySelectorAll("[data-module-view]")) {
+        view.hidden = view.dataset.moduleView !== target;
+      }
+
+      for (const button of document.querySelectorAll("[data-module]")) {
+        button.classList.toggle("active", button.dataset.module === target);
+      }
     }
 
     function currentKmrsConnection() {
@@ -975,6 +1150,15 @@ export function renderDashboard(): string {
       return value === null || value === undefined ? "—" : money.format(value) + " " + currency;
     }
 
+    function dateOrDash(value) {
+      if (!value) {
+        return "—";
+      }
+
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? text(value) : dateTime.format(date);
+    }
+
     function percentOrDash(value) {
       return value === null || value === undefined ? "—" : money.format(value) + "%";
     }
@@ -1038,8 +1222,24 @@ export function renderDashboard(): string {
 
     function setBusy(value) {
       state.busy = value;
-      for (const id of ["save-key", "import-menu", "refresh-kmrs", "link-all-kmrs", "add-recipe", "add-product", "add-category", "refresh-products"]) {
-        document.getElementById(id).disabled = value;
+      for (const id of [
+        "save-key",
+        "import-menu",
+        "refresh-kmrs",
+        "link-all-kmrs",
+        "add-recipe",
+        "add-product",
+        "add-category",
+        "refresh-products",
+        "add-supplier",
+        "add-receipt-line",
+        "save-receipt",
+        "clear-receipt"
+      ]) {
+        const button = document.getElementById(id);
+        if (button) {
+          button.disabled = value;
+        }
       }
       for (const id of ["editor-save", "editor-activate", "editor-add-line"]) {
         const button = document.getElementById(id);
@@ -1185,6 +1385,334 @@ export function renderDashboard(): string {
       }
     }
 
+    function setSupplierMessage(message, isError) {
+      const el = document.getElementById("supplier-message");
+      el.textContent = message;
+      el.className = isError ? "notice error" : "notice";
+    }
+
+    function setReceiptMessage(message, isError) {
+      const el = document.getElementById("receipt-message");
+      el.textContent = message;
+      el.className = isError ? "notice error" : "notice";
+    }
+
+    function purchasingPanel(title, child) {
+      const box = document.createElement("div");
+      box.className = "editor-panel";
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      box.appendChild(heading);
+      box.appendChild(child);
+      return box;
+    }
+
+    function renderPurchaseControls() {
+      const supplierSelect = document.getElementById("receipt-supplier");
+      supplierSelect.replaceChildren();
+
+      if (state.purchasing.suppliers.length === 0) {
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "Сначала добавьте поставщика";
+        supplierSelect.appendChild(empty);
+      } else {
+        for (const supplier of state.purchasing.suppliers) {
+          const option = document.createElement("option");
+          option.value = supplier.id;
+          option.textContent = supplier.name;
+          supplierSelect.appendChild(option);
+        }
+      }
+
+      const productSelect = document.getElementById("receipt-product");
+      productSelect.replaceChildren();
+      for (const product of state.products) {
+        const option = document.createElement("option");
+        option.value = product.id;
+        option.textContent = product.name + " · " + productTypeLabel(product.productType);
+        productSelect.appendChild(option);
+      }
+
+      fillSelect(document.getElementById("receipt-unit"), state.units, function (unit) {
+        return unitCodeLabel(unit.code);
+      });
+
+      const dateInput = document.getElementById("receipt-date");
+      if (!dateInput.value) {
+        dateInput.value = new Date().toISOString().slice(0, 10);
+      }
+
+      syncReceiptProductUnit();
+    }
+
+    function syncReceiptProductUnit() {
+      const product = productById(document.getElementById("receipt-product").value);
+
+      if (product) {
+        document.getElementById("receipt-unit").value = product.baseUnitId;
+      }
+    }
+
+    function renderReceiptDraft() {
+      const root = document.getElementById("receipt-draft");
+      root.replaceChildren();
+
+      if (state.purchaseDraftLines.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "notice";
+        empty.textContent = "В черновике пока нет строк.";
+        root.appendChild(empty);
+        return;
+      }
+
+      const rows = state.purchaseDraftLines.map(function (line, index) {
+        const action = document.createElement("td");
+        const button = document.createElement("button");
+        button.className = "danger";
+        button.type = "button";
+        button.textContent = "Удалить";
+        button.dataset.action = "remove-receipt-line";
+        button.dataset.index = String(index);
+        action.appendChild(button);
+
+        return [
+          line.productName,
+          qty.format(line.quantity) + " " + unitCodeLabel(line.unitCode),
+          money.format(line.unitPrice) + " " + state.summary.organization.defaultCurrency,
+          money.format(line.quantity * line.unitPrice) + " " + state.summary.organization.defaultCurrency,
+          action
+        ];
+      });
+
+      root.appendChild(table(["Продукт", "Кол-во", "Цена", "Сумма", ""], rows));
+    }
+
+    function renderPurchasing() {
+      const root = document.getElementById("purchasing-overview");
+      const data = state.purchasing;
+      const currency = state.summary.organization.defaultCurrency;
+      root.replaceChildren();
+      document.getElementById("purchases-badge").textContent = data.receivingDocuments.length + " приходов";
+
+      const stats = document.createElement("div");
+      stats.className = "stats";
+      const latestTotal = data.latestPrices.reduce(function (sum, item) {
+        return sum + Number(item.unitPrice || 0);
+      }, 0);
+      stats.appendChild(stat("Поставщики", data.suppliers.length));
+      stats.appendChild(stat("Приходы", data.receivingDocuments.length));
+      stats.appendChild(stat("Счета", data.invoiceDocuments.length));
+      stats.appendChild(stat("Средняя цена", data.latestPrices.length ? money.format(latestTotal / data.latestPrices.length) + " " + currency : "—"));
+      root.appendChild(stats);
+
+      const grid = document.createElement("div");
+      grid.className = "module-grid";
+
+      const supplierRows = data.suppliers.map(function (supplier) {
+        return [
+          supplier.name,
+          supplier.phone || "—",
+          supplier.paymentTerms || "—"
+        ];
+      });
+      grid.appendChild(purchasingPanel(
+        "Поставщики",
+        supplierRows.length ? table(["Название", "Телефон", "Условия"], supplierRows) : noticeNode("Поставщиков пока нет.")
+      ));
+
+      const receivingRows = data.receivingDocuments.map(function (doc) {
+        return [
+          doc.documentNumber || "—",
+          doc.supplierName || "—",
+          dateOrDash(doc.receivedAt),
+          String(doc.lineCount || 0),
+          moneyOrDash(doc.totalCost, doc.currency || currency)
+        ];
+      });
+      grid.appendChild(purchasingPanel(
+        "Приходные накладные",
+        receivingRows.length ? table(["Накладная", "Поставщик", "Дата", "Строк", "Сумма"], receivingRows) : noticeNode("Приходов пока нет.")
+      ));
+
+      const invoiceRows = data.invoiceDocuments.map(function (doc) {
+        return [
+          doc.invoiceNumber || "—",
+          doc.supplierName || "—",
+          dateOrDash(doc.invoiceDate),
+          doc.status,
+          moneyOrDash(doc.total, doc.currency || currency)
+        ];
+      });
+      grid.appendChild(purchasingPanel(
+        "Счета",
+        invoiceRows.length ? table(["Счет", "Поставщик", "Дата", "Статус", "Сумма"], invoiceRows) : noticeNode("Счетов пока нет.")
+      ));
+
+      const priceRows = data.latestPrices.map(function (price) {
+        return [
+          price.productName,
+          price.supplierName || "—",
+          money.format(Number(price.unitPrice || 0)) + " " + price.currency + " / " + unitCodeLabel(price.unitCode),
+          dateOrDash(price.observedAt)
+        ];
+      });
+      grid.appendChild(purchasingPanel(
+        "Последние закупочные цены",
+        priceRows.length ? table(["Продукт", "Поставщик", "Цена", "Дата"], priceRows) : noticeNode("Истории цен пока нет.")
+      ));
+
+      root.appendChild(grid);
+    }
+
+    function noticeNode(message) {
+      const el = document.createElement("div");
+      el.className = "notice";
+      el.textContent = message;
+      return el;
+    }
+
+    async function refreshPurchasing() {
+      const org = encodeURIComponent(state.summary.organization.id);
+      const location = encodeURIComponent(currentLocationId());
+      const response = await fetchJson("/v1/purchasing/overview?organizationId=" + org + "&locationId=" + location + "&limit=100");
+      state.purchasing = response.data;
+      renderPurchaseControls();
+      renderReceiptDraft();
+      renderPurchasing();
+    }
+
+    async function createSupplierFromForm() {
+      const nameInput = document.getElementById("supplier-name");
+      const phoneInput = document.getElementById("supplier-phone");
+      const termsInput = document.getElementById("supplier-terms");
+      const name = nameInput.value.trim();
+
+      if (!name) {
+        setSupplierMessage("Введите название поставщика.", true);
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        await fetchJson("/v1/suppliers", {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            organizationId: state.summary.organization.id,
+            name,
+            phone: phoneInput.value.trim(),
+            paymentTerms: termsInput.value.trim()
+          })
+        });
+        nameInput.value = "";
+        phoneInput.value = "";
+        termsInput.value = "";
+        await refreshPurchasing();
+        setSupplierMessage("Поставщик создан.", false);
+      } catch (error) {
+        setSupplierMessage(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function addReceiptLineFromForm() {
+      const product = productById(document.getElementById("receipt-product").value);
+      const unit = unitById(document.getElementById("receipt-unit").value);
+      const quantityValue = Number(document.getElementById("receipt-quantity").value);
+      const priceValue = Number(document.getElementById("receipt-price").value);
+
+      if (!product || !unit) {
+        setReceiptMessage("Выберите продукт и единицу.", true);
+        return;
+      }
+
+      if (!Number.isFinite(quantityValue) || quantityValue <= 0) {
+        setReceiptMessage("Количество должно быть больше нуля.", true);
+        return;
+      }
+
+      if (!Number.isFinite(priceValue) || priceValue < 0) {
+        setReceiptMessage("Цена должна быть нулем или больше.", true);
+        return;
+      }
+
+      state.purchaseDraftLines.push({
+        productId: product.id,
+        productName: product.name,
+        quantity: quantityValue,
+        unitId: unit.id,
+        unitCode: unit.code,
+        unitPrice: priceValue
+      });
+      renderReceiptDraft();
+      setReceiptMessage("Строка добавлена в черновик.", false);
+    }
+
+    async function saveReceiptFromForm() {
+      if (state.purchaseDraftLines.length === 0) {
+        setReceiptMessage("Добавьте хотя бы одну строку накладной.", true);
+        return;
+      }
+
+      const supplierId = document.getElementById("receipt-supplier").value;
+      if (!supplierId) {
+        setReceiptMessage("Выберите поставщика.", true);
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        const dateValue = document.getElementById("receipt-date").value;
+        const payload = {
+          organizationId: state.summary.organization.id,
+          locationId: currentLocationId(),
+          supplierId,
+          documentNumber: document.getElementById("receipt-number").value.trim(),
+          invoiceNumber: document.getElementById("receipt-invoice").value.trim(),
+          receivedAt: dateValue || undefined,
+          invoiceDate: dateValue || undefined,
+          currency: state.summary.organization.defaultCurrency,
+          lines: state.purchaseDraftLines.map(function (line) {
+            return {
+              productId: line.productId,
+              quantity: line.quantity,
+              unitId: line.unitId,
+              unitPrice: line.unitPrice
+            };
+          })
+        };
+        const response = await fetchJson("/v1/purchasing/receipts", {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify(payload)
+        });
+        state.purchaseDraftLines = [];
+        document.getElementById("receipt-number").value = "";
+        document.getElementById("receipt-invoice").value = "";
+        renderReceiptDraft();
+        await refreshPurchasing();
+        await refreshProducts();
+        const org = encodeURIComponent(state.summary.organization.id);
+        const inventory = await fetchJson("/v1/inventory/summary?organizationId=" + org);
+        renderInventory(inventory.data, state.summary.organization.defaultCurrency);
+        setReceiptMessage("Накладная сохранена: " + response.data.documentNumber + ", сумма " + money.format(response.data.total) + " " + response.data.currency + ".", false);
+      } catch (error) {
+        setReceiptMessage(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function clearReceiptDraft() {
+      state.purchaseDraftLines = [];
+      renderReceiptDraft();
+      setReceiptMessage("Черновик очищен.", false);
+    }
+
     function syncNewRecipeYieldUnit() {
       const typeSelect = document.getElementById("new-recipe-type");
       const unitSelect = document.getElementById("new-recipe-yield-unit");
@@ -1281,6 +1809,7 @@ export function renderDashboard(): string {
         ["/v1/catalog?organizationId=" + org, "catalog"],
         ["/v1/products?organizationId=" + org, "products"],
         ["/v1/inventory/summary?organizationId=" + org, "inventory"],
+        ["/v1/purchasing/overview?organizationId=" + org + "&locationId=" + location, "purchasing"],
         ["/v1/recipes/" + recipe + "?organizationId=" + org, "recipe cost"],
         ["/v1/kmrs/connections?organizationId=" + org + "&locationId=" + location, "kmrs connections"],
         ["/v1/kmrs/menu-items?organizationId=" + org + "&locationId=" + location, "kmrs menu"]
@@ -1299,17 +1828,20 @@ export function renderDashboard(): string {
       localStorage.setItem("tagamAccountingKmrsBaseUrl", state.kmrsBaseUrl);
       document.getElementById("kmrs-slug").value = state.restaurantSlug;
       document.getElementById("kmrs-base-url").value = state.kmrsBaseUrl;
-      const select = document.getElementById("kmrs-location");
-      select.replaceChildren();
+      const selectedLocation = state.selectedLocationId || state.summary.primaryLocation.id;
 
-      for (const location of state.locations) {
-        const option = document.createElement("option");
-        option.value = location.id;
-        option.textContent = location.name + (location.kmrsMerchantId ? " / KMRS " + location.kmrsMerchantId : "");
-        select.appendChild(option);
+      for (const select of [document.getElementById("global-location"), document.getElementById("kmrs-location")]) {
+        select.replaceChildren();
+
+        for (const location of state.locations) {
+          const option = document.createElement("option");
+          option.value = location.id;
+          option.textContent = location.name + (location.kmrsMerchantId ? " / KMRS " + location.kmrsMerchantId : "");
+          select.appendChild(option);
+        }
+
+        select.value = selectedLocation;
       }
-
-      select.value = state.selectedLocationId || state.summary.primaryLocation.id;
     }
 
     function renderConnections() {
@@ -2114,6 +2646,24 @@ export function renderDashboard(): string {
     }
 
     function wireEvents() {
+      const syncLocation = function (locationId) {
+        state.selectedLocationId = locationId;
+        localStorage.setItem("tagamAccountingLocationId", state.selectedLocationId);
+        document.getElementById("global-location").value = state.selectedLocationId;
+        document.getElementById("kmrs-location").value = state.selectedLocationId;
+        refreshKmrs();
+        refreshPurchasing().catch(function (error) {
+          setReceiptMessage(error.message, true);
+        });
+      };
+
+      document.getElementById("module-nav").addEventListener("click", function (event) {
+        const button = event.target.closest("button[data-module]");
+
+        if (button) {
+          switchModule(button.dataset.module);
+        }
+      });
       document.getElementById("save-key").addEventListener("click", function () {
         state.restaurantSlug = document.getElementById("kmrs-slug").value.trim();
         state.kmrsBaseUrl = normalizeKmrsBaseUrl(document.getElementById("kmrs-base-url").value);
@@ -2137,6 +2687,22 @@ export function renderDashboard(): string {
       document.getElementById("add-recipe").addEventListener("click", createRecipeFromForm);
       document.getElementById("add-category").addEventListener("click", createCategoryFromForm);
       document.getElementById("add-product").addEventListener("click", createProductFromForm);
+      document.getElementById("add-supplier").addEventListener("click", createSupplierFromForm);
+      document.getElementById("receipt-product").addEventListener("change", syncReceiptProductUnit);
+      document.getElementById("add-receipt-line").addEventListener("click", addReceiptLineFromForm);
+      document.getElementById("save-receipt").addEventListener("click", saveReceiptFromForm);
+      document.getElementById("clear-receipt").addEventListener("click", clearReceiptDraft);
+      document.getElementById("receipt-draft").addEventListener("click", function (event) {
+        const button = event.target.closest("button[data-action='remove-receipt-line']");
+
+        if (!button) {
+          return;
+        }
+
+        state.purchaseDraftLines.splice(Number(button.dataset.index), 1);
+        renderReceiptDraft();
+        setReceiptMessage("Строка удалена из черновика.", false);
+      });
       document.getElementById("refresh-products").addEventListener("click", async function () {
         setBusy(true);
 
@@ -2150,10 +2716,11 @@ export function renderDashboard(): string {
         }
       });
       document.getElementById("product-search").addEventListener("input", renderProducts);
+      document.getElementById("global-location").addEventListener("change", function () {
+        syncLocation(document.getElementById("global-location").value);
+      });
       document.getElementById("kmrs-location").addEventListener("change", function () {
-        state.selectedLocationId = currentLocationId();
-        localStorage.setItem("tagamAccountingLocationId", state.selectedLocationId);
-        refreshKmrs();
+        syncLocation(document.getElementById("kmrs-location").value);
       });
       document.getElementById("kmrs-menu").addEventListener("click", function (event) {
         const button = event.target.closest("button[data-action]");
@@ -2185,6 +2752,7 @@ export function renderDashboard(): string {
 
         const org = encodeURIComponent(summary.organization.id);
         const recipeId = encodeURIComponent(summary.activeRecipeVersionId);
+        const location = encodeURIComponent(state.selectedLocationId || summary.primaryLocation.id);
         const writeoffBody = {
           organizationId: summary.organization.id,
           locationId: summary.primaryLocation.id,
@@ -2206,6 +2774,7 @@ export function renderDashboard(): string {
           fetchJson("/v1/recipes?organizationId=" + org + "&limit=500"),
           fetchJson("/v1/recipes/" + recipeId + "?organizationId=" + org),
           fetchJson("/v1/inventory/summary?organizationId=" + org),
+          fetchJson("/v1/purchasing/overview?organizationId=" + org + "&locationId=" + location + "&limit=100"),
           fetchJson("/v1/kmrs/orders/preview-writeoff", {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -2217,14 +2786,19 @@ export function renderDashboard(): string {
         state.categories = result[0].data.categories;
         state.products = result[1].data;
         state.recipes = result[2].data;
+        state.purchasing = result[5].data;
         renderRecipe(result[3].data);
         renderInventory(result[4].data, summary.organization.defaultCurrency);
-        renderWriteoff(result[5].data);
+        renderWriteoff(result[6].data);
         renderProductControls();
         renderProducts();
         renderRecipeCreateControls();
+        renderPurchaseControls();
+        renderReceiptDraft();
+        renderPurchasing();
         renderKmrsControls();
         wireEvents();
+        switchModule(state.activeModule);
         renderKmrsMenu();
         status.textContent = "Online";
         refreshKmrs();
