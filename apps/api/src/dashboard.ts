@@ -778,6 +778,14 @@ export function renderDashboard(): string {
         <button class="primary" id="add-recipe" type="button">Создать</button>
       </div>
       <div id="recipe-message" class="notice" style="margin-bottom:12px">Можно создать блюдо, полуфабрикат или вложенную заготовку.</div>
+      <div class="subtoolbar">
+        <label>Поиск техкарты
+          <input id="recipe-search" autocomplete="off" placeholder="Блюдо, полуфабрикат, заготовка">
+        </label>
+        <button class="ghost" id="refresh-recipes" type="button">Обновить</button>
+        <div id="recipe-list-message" class="notice" style="grid-column: span 2">Техкарты сгруппированы по типу.</div>
+      </div>
+      <div id="recipes-list"></div>
       <div id="recipe-editor" class="recipe-editor"></div>
     </section>
 
@@ -1231,6 +1239,7 @@ export function renderDashboard(): string {
         "add-product",
         "add-category",
         "refresh-products",
+        "refresh-recipes",
         "add-supplier",
         "add-receipt-line",
         "save-receipt",
@@ -1382,6 +1391,88 @@ export function renderDashboard(): string {
         option.value = product.id;
         option.textContent = product.name + " · " + productTypeLabel(product.productType);
         outputSelect.appendChild(option);
+      }
+    }
+
+    function renderRecipesList() {
+      const root = document.getElementById("recipes-list");
+      const message = document.getElementById("recipe-list-message");
+
+      if (!root || !message) {
+        return;
+      }
+
+      const search = document.getElementById("recipe-search").value.trim().toLowerCase();
+      const filtered = state.recipes.filter(function (recipe) {
+        const outputProduct = productById(recipe.outputProductId);
+        return !search ||
+          recipe.recipeName.toLowerCase().includes(search) ||
+          recipeTypeLabel(recipe.recipeType).toLowerCase().includes(search) ||
+          (outputProduct && outputProduct.name.toLowerCase().includes(search));
+      });
+      const grouped = new Map();
+
+      for (const recipe of filtered) {
+        const key = recipe.recipeType;
+        const group = grouped.get(key) || {
+          label: recipeTypeLabel(recipe.recipeType),
+          items: []
+        };
+        group.items.push(recipe);
+        grouped.set(key, group);
+      }
+
+      const rows = [];
+
+      for (const group of grouped.values()) {
+        const categoryCell = document.createElement("td");
+        categoryCell.colSpan = 6;
+        categoryCell.innerHTML = "<span></span><small></small>";
+        categoryCell.querySelector("span").textContent = group.label;
+        categoryCell.querySelector("small").textContent = group.items.length + " техкарт";
+        rows.push([categoryCell]);
+
+        for (const recipe of group.items) {
+          const outputProduct = productById(recipe.outputProductId);
+          const status = document.createElement("td");
+          const badge = document.createElement("span");
+          badge.className = recipe.status === "active" ? "pill ok" : recipe.status === "draft" ? "pill warn" : "pill bad";
+          badge.textContent = recipeStatusLabel(recipe.status);
+          status.appendChild(badge);
+
+          const action = document.createElement("td");
+          const button = document.createElement("button");
+          button.className = "ghost";
+          button.type = "button";
+          button.textContent = "Открыть";
+          button.dataset.action = "open-recipe";
+          button.dataset.id = recipe.recipeVersionId;
+          action.appendChild(button);
+
+          rows.push([
+            recipe.recipeName,
+            recipe.versionCode,
+            outputProduct ? outputProduct.name : "—",
+            qty.format(Number(recipe.yieldQuantity)) + " " + unitCodeLabel((unitById(recipe.yieldUnitId) || {}).code || ""),
+            status,
+            action
+          ]);
+        }
+      }
+
+      root.replaceChildren();
+      message.textContent = "Показано " + filtered.length + " из " + state.recipes.length + " техкарт.";
+
+      if (filtered.length === 0) {
+        root.appendChild(noticeNode("Техкарты не найдены."));
+        return;
+      }
+
+      root.appendChild(table(["Техкарта", "Версия", "Выходной продукт", "Выход", "Статус", ""], rows));
+      for (const row of root.querySelectorAll("tbody tr")) {
+        if (row.children.length === 1) {
+          row.className = "category-row";
+        }
       }
     }
 
@@ -2525,6 +2616,7 @@ export function renderDashboard(): string {
       const org = encodeURIComponent(state.summary.organization.id);
       const result = await fetchJson("/v1/recipes?organizationId=" + org + "&limit=500");
       state.recipes = result.data;
+      renderRecipesList();
     }
 
     async function importMenu() {
@@ -2685,6 +2777,27 @@ export function renderDashboard(): string {
       document.getElementById("menu-search").addEventListener("input", renderKmrsMenu);
       document.getElementById("new-recipe-type").addEventListener("change", syncNewRecipeYieldUnit);
       document.getElementById("add-recipe").addEventListener("click", createRecipeFromForm);
+      document.getElementById("refresh-recipes").addEventListener("click", async function () {
+        setBusy(true);
+
+        try {
+          await refreshRecipes();
+          renderKmrsMenu();
+          setRecipeMessage("Список техкарт обновлен.", false);
+        } catch (error) {
+          setRecipeMessage(error.message, true);
+        } finally {
+          setBusy(false);
+        }
+      });
+      document.getElementById("recipe-search").addEventListener("input", renderRecipesList);
+      document.getElementById("recipes-list").addEventListener("click", function (event) {
+        const button = event.target.closest("button[data-action='open-recipe']");
+
+        if (button) {
+          openRecipeEditor(button.dataset.id);
+        }
+      });
       document.getElementById("add-category").addEventListener("click", createCategoryFromForm);
       document.getElementById("add-product").addEventListener("click", createProductFromForm);
       document.getElementById("add-supplier").addEventListener("click", createSupplierFromForm);
@@ -2793,6 +2906,7 @@ export function renderDashboard(): string {
         renderProductControls();
         renderProducts();
         renderRecipeCreateControls();
+        renderRecipesList();
         renderPurchaseControls();
         renderReceiptDraft();
         renderPurchasing();
