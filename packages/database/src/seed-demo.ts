@@ -58,22 +58,22 @@ export async function seedDemoData(database: DatabasePool): Promise<{
     (await ensureLocation(database, organizationId, demoLocationName, "demo-merchant-1"));
   const units = await ensureUnits(database, organizationId);
   const categories = {
-    meat: await ensureCategory(database, organizationId, "Meat"),
-    dairy: await ensureCategory(database, organizationId, "Dairy"),
-    bakery: await ensureCategory(database, organizationId, "Bakery"),
-    sauces: await ensureCategory(database, organizationId, "Sauces"),
-    packaging: await ensureCategory(database, organizationId, "Packaging"),
+    meat: await ensureCategory(database, organizationId, "Сырье: мясо"),
+    dairy: await ensureCategory(database, organizationId, "Сырье: молочные продукты"),
+    bakery: await ensureCategory(database, organizationId, "Сырье: бакалея"),
+    sauces: await ensureCategory(database, organizationId, "Сырье: соусы и специи"),
+    packaging: await ensureCategory(database, organizationId, "Упаковка: доставка"),
   };
   const products = {
-    beef: await ensureProduct(database, organizationId, categories.meat, units.g, "Beef raw", "raw"),
-    bun: await ensureProduct(database, organizationId, categories.bakery, units.pcs, "Burger bun", "raw"),
-    cheese: await ensureProduct(database, organizationId, categories.dairy, units.g, "Cheddar cheese", "raw"),
-    sauce: await ensureProduct(database, organizationId, categories.sauces, units.g, "House burger sauce", "raw"),
-    box: await ensureProduct(database, organizationId, categories.packaging, units.pcs, "Burger box", "packaging"),
+    beef: await ensureProduct(database, organizationId, categories.meat, units.g, "Говядина сырая", "raw"),
+    bun: await ensureProduct(database, organizationId, categories.bakery, units.pcs, "Булочка для бургера", "raw"),
+    cheese: await ensureProduct(database, organizationId, categories.dairy, units.g, "Сыр чеддер", "raw"),
+    sauce: await ensureProduct(database, organizationId, categories.sauces, units.g, "Фирменный соус для бургера", "raw"),
+    box: await ensureProduct(database, organizationId, categories.packaging, units.pcs, "Бургер-бокс", "packaging"),
   };
   const processing = {
-    trimming: await ensureProcessingMethod(database, organizationId, "Beef trimming", "trimming"),
-    frying: await ensureProcessingMethod(database, organizationId, "Flat-top frying", "frying"),
+    trimming: await ensureProcessingMethod(database, organizationId, "Зачистка говядины", "trimming"),
+    frying: await ensureProcessingMethod(database, organizationId, "Жарка на плите", "frying"),
   };
 
   await ensureYieldRule(database, organizationId, products.beef, processing.trimming, units.g, 1000, 920, 92);
@@ -87,7 +87,7 @@ export async function seedDemoData(database: DatabasePool): Promise<{
   await ensureStockLot(database, organizationId, locationId, supplierId, products.sauce, units.g, 3_000, 0.03, "TMT", "SAUCE-DEMO-001");
   await ensureStockLot(database, organizationId, locationId, supplierId, products.box, units.pcs, 100, 0.5, "TMT", "BOX-DEMO-001");
 
-  const recipeId = await ensureRecipe(database, organizationId, "Classic Burger", "menu_item");
+  const recipeId = await ensureRecipe(database, organizationId, "Классический бургер", "menu_item");
   const recipeVersionId = await ensureRecipeVersion(database, recipeId, units.pcs);
   const hasLines = await recipeHasLines(database, recipeVersionId);
 
@@ -398,7 +398,7 @@ async function ensureRecipeVersion(database: DatabasePool, recipeId: string, uni
         currency,
         instructions
       )
-      values ($1, 'v1', 'active', now(), 1, $2, 1, 32, 45, 'TMT', 'Demo classic burger recipe.')
+      values ($1, 'v1', 'active', now(), 1, $2, 1, 32, 45, 'TMT', 'Демо-техкарта классического бургера.')
       on conflict (recipe_id, version_code)
       do update set status = 'active', menu_price = excluded.menu_price
       returning id
@@ -486,7 +486,7 @@ async function ensureKmrsMenuItem(
         currency,
         is_available
       )
-      values ($1, $2, $3, 'Classic Burger', 'Demo KMRS menu item imported into accounting.', 45, 'TMT', true)
+  values ($1, $2, $3, 'Классический бургер', 'Демо-позиция KMRS, импортированная в учетный модуль.', 45, 'TMT', true)
       returning id
     `,
     [organizationId, locationId, kmrsItemId],

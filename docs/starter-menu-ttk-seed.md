@@ -64,3 +64,19 @@ The first demo run filled the `Ashgabat Demo Kitchen / 7sky` imported menu:
 - 159 KMRS menu items linked.
 
 Food-cost calculation for newly created ingredients will remain incomplete until purchase receipts or starting stock lots are loaded with unit costs.
+
+## Russian catalog localization
+
+`scripts/localize-ru-catalog.mjs` converts old English demo catalog names into Russian names:
+
+- ingredient and packaging product names;
+- basic demo recipe/prep names;
+- unit names (`грамм`, `килограмм`, `миллилитр`, `литр`, `штука`);
+- old flat demo categories such as `Meat`, `Dairy`, and `Packaging` are moved into the Russian nested category tree.
+
+Run it against a database connection:
+
+```powershell
+$env:DATABASE_URL = "postgres://..."
+npm run localize:ru
+```

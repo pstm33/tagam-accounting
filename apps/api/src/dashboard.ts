@@ -889,6 +889,21 @@ export function renderDashboard(): string {
       return state.units.find(function (unit) { return unit.id === id; }) || null;
     }
 
+    function unitCodeLabel(code) {
+      const labels = {
+        g: "\u0433",
+        kg: "\u043a\u0433",
+        ml: "\u043c\u043b",
+        l: "\u043b",
+        pcs: "\u0448\u0442"
+      };
+      return labels[code] || code;
+    }
+
+    function unitOptionLabel(unit) {
+      return unitCodeLabel(unit.code) + " - " + unit.name;
+    }
+
     function categoryById(id) {
       return state.categories.find(function (category) { return category.id === id; }) || null;
     }
@@ -1078,7 +1093,7 @@ export function renderDashboard(): string {
       document.getElementById("recipe-badge").textContent = complete ? "Полный расчет" : "Есть пробелы";
       title.innerHTML = "<strong></strong><p></p>";
       title.querySelector("strong").textContent = recipe.recipeName;
-      title.querySelector("p").textContent = "Версия " + recipe.versionCode + ", выход " + qty.format(Number(recipe.yieldQuantity)) + " " + recipe.yieldUnitCode;
+      title.querySelector("p").textContent = "Версия " + recipe.versionCode + ", выход " + qty.format(Number(recipe.yieldQuantity)) + " " + unitCodeLabel(recipe.yieldUnitCode);
       root.appendChild(title);
 
       const kpis = document.createElement("div");
@@ -1097,8 +1112,8 @@ export function renderDashboard(): string {
         status.appendChild(badge);
         return [
           line.productName,
-          qty.format(line.stockInputQuantity) + " " + line.unitCode,
-          qty.format(line.preparedOutputQuantity) + " " + line.unitCode,
+          qty.format(line.stockInputQuantity) + " " + unitCodeLabel(line.unitCode),
+          qty.format(line.preparedOutputQuantity) + " " + unitCodeLabel(line.unitCode),
           money.format(line.lineCost || 0) + " " + (line.currency || recipe.currency),
           status
         ];
@@ -1121,7 +1136,7 @@ export function renderDashboard(): string {
 
     function renderProductControls() {
       fillSelect(document.getElementById("product-unit"), state.units, function (unit) {
-        return unit.code + " — " + unit.name;
+        return unitOptionLabel(unit);
       });
 
       const categorySelect = document.getElementById("product-category");
@@ -1147,7 +1162,7 @@ export function renderDashboard(): string {
 
     function renderRecipeCreateControls() {
       fillSelect(document.getElementById("new-recipe-yield-unit"), state.units, function (unit) {
-        return unit.code;
+        return unitCodeLabel(unit.code);
       });
       const outputSelect = document.getElementById("new-recipe-output-product");
       outputSelect.replaceChildren();
@@ -1188,7 +1203,7 @@ export function renderDashboard(): string {
         const category = categoryById(product.categoryId);
         return [
           product.name,
-          unit ? unit.code : "—",
+          unit ? unitCodeLabel(unit.code) : "—",
           category ? categoryPath(category.id) : "Без категории",
           productTypeLabel(product.productType),
           inventoryPolicyLabel(product.inventoryPolicy),
@@ -1219,9 +1234,9 @@ export function renderDashboard(): string {
         status.appendChild(badge);
         return [
           item.productName,
-          qty.format(item.quantity) + " " + item.unitCode,
+          qty.format(item.quantity) + " " + unitCodeLabel(item.unitCode),
           money.format(item.estimatedCost) + " " + item.currency,
-          qty.format(item.availableQuantity) + " " + item.unitCode,
+          qty.format(item.availableQuantity) + " " + unitCodeLabel(item.unitCode),
           status
         ];
       });
@@ -1468,7 +1483,7 @@ export function renderDashboard(): string {
       root.appendChild(panel);
 
       document.getElementById("editor-title").textContent = detail.recipeName + " / " + detail.versionCode;
-      document.getElementById("editor-subtitle").textContent = "Выход " + qty.format(Number(detail.yieldQuantity)) + " " + detail.yieldUnitCode;
+      document.getElementById("editor-subtitle").textContent = "Выход " + qty.format(Number(detail.yieldQuantity)) + " " + unitCodeLabel(detail.yieldUnitCode);
       document.getElementById("editor-status").textContent = recipeStatusLabel(detail.status);
       document.getElementById("editor-status").className = detail.status === "active" ? "pill ok" : "pill warn";
       document.getElementById("editor-yield").value = Number(detail.yieldQuantity);
@@ -1477,7 +1492,7 @@ export function renderDashboard(): string {
       document.getElementById("editor-instructions").value = detail.instructions || "";
 
       fillSelect(document.getElementById("editor-yield-unit"), state.units, function (unit) {
-        return unit.code + " — " + unit.name;
+        return unitOptionLabel(unit);
       });
       document.getElementById("editor-yield-unit").value = detail.yieldUnitId;
       fillSelect(document.getElementById("editor-line-product"), state.products, function (product) {
@@ -1489,7 +1504,7 @@ export function renderDashboard(): string {
         return recipeLabel(recipe) + " · " + recipeTypeLabel(recipe.recipeType);
       });
       fillSelect(document.getElementById("editor-line-unit"), state.units, function (unit) {
-        return unit.code;
+        return unitCodeLabel(unit.code);
       });
       const firstProduct = state.products[0] || null;
       if (firstProduct) {
@@ -1584,7 +1599,7 @@ export function renderDashboard(): string {
           : line.productName;
         return [
           title,
-          qty.format(Number(line.quantity)) + " " + line.unitCode,
+          qty.format(Number(line.quantity)) + " " + unitCodeLabel(line.unitCode),
           line.quantityMode === "prepared_output" ? "после обработки" : "со склада",
           money.format(Number(line.extraWastePercent)) + "%",
           line.costStatus === "ok" ? "ok" : line.costStatus,

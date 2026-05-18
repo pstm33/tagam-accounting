@@ -85,11 +85,11 @@ export async function bootstrapOrganization(
       `
         insert into units (organization_id, code, name, measure_type, is_base)
         values
-          ($1, 'g', 'gram', 'weight', true),
-          ($1, 'kg', 'kilogram', 'weight', false),
-          ($1, 'ml', 'milliliter', 'volume', true),
-          ($1, 'l', 'liter', 'volume', false),
-          ($1, 'pcs', 'piece', 'count', true)
+          ($1, 'g', 'грамм', 'weight', true),
+          ($1, 'kg', 'килограмм', 'weight', false),
+          ($1, 'ml', 'миллилитр', 'volume', true),
+          ($1, 'l', 'литр', 'volume', false),
+          ($1, 'pcs', 'штука', 'count', true)
         returning
           id,
           code,
