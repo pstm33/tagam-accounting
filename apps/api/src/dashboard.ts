@@ -471,6 +471,19 @@ export function renderDashboard(): string {
       grid-template-columns: 1.4fr .7fr .7fr .7fr .7fr auto;
     }
 
+    .product-form,
+    .category-form {
+      display: grid;
+      grid-template-columns: 1.3fr .8fr .9fr .75fr .85fr .55fr auto;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+
+    .category-form {
+      grid-template-columns: 1fr 1fr auto 1fr;
+    }
+
     @media (max-width: 1100px) {
       .toolbar,
       .subtoolbar {
@@ -482,7 +495,9 @@ export function renderDashboard(): string {
       }
 
       .editor-grid,
-      .editor-grid.wide {
+      .editor-grid.wide,
+      .product-form,
+      .category-form {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
@@ -521,7 +536,9 @@ export function renderDashboard(): string {
       .toolbar,
       .subtoolbar,
       .editor-grid,
-      .editor-grid.wide {
+      .editor-grid.wide,
+      .product-form,
+      .category-form {
         grid-template-columns: 1fr;
       }
 
@@ -567,6 +584,66 @@ export function renderDashboard(): string {
         </div>
         <div id="inventory"></div>
       </div>
+    </section>
+
+    <section class="card" style="margin-top:16px">
+      <div class="section-head">
+        <h2>Продукты</h2>
+        <span class="pill ok" id="products-badge">Справочник</span>
+      </div>
+
+      <div class="category-form">
+        <label>Новая категория
+          <input id="category-name" autocomplete="off" placeholder="Название категории">
+        </label>
+        <label>Родитель
+          <select id="category-parent"></select>
+        </label>
+        <button class="ghost" id="add-category" type="button">Создать</button>
+        <div id="category-message" class="notice">Готово.</div>
+      </div>
+
+      <div class="product-form">
+        <label>Название
+          <input id="product-name" autocomplete="off" placeholder="Название продукта">
+        </label>
+        <label>Ед.
+          <select id="product-unit"></select>
+        </label>
+        <label>Категория
+          <select id="product-category"></select>
+        </label>
+        <label>Тип
+          <select id="product-type">
+            <option value="raw">сырье</option>
+            <option value="prepared">полуфабрикат</option>
+            <option value="packaging">упаковка</option>
+            <option value="bar_item">бар</option>
+            <option value="supply">хозтовар</option>
+          </select>
+        </label>
+        <label>Учет
+          <select id="product-policy">
+            <option value="tracked">склад</option>
+            <option value="theoretical_only">только норма</option>
+            <option value="not_tracked">без учета</option>
+          </select>
+        </label>
+        <label>Потери %
+          <input id="product-waste" type="number" min="0" step="0.001" value="0">
+        </label>
+        <button class="primary" id="add-product" type="button">Добавить</button>
+      </div>
+
+      <div class="subtoolbar">
+        <label>Поиск
+          <input id="product-search" autocomplete="off" placeholder="Название продукта">
+        </label>
+        <button class="ghost" id="refresh-products" type="button">Обновить</button>
+        <div id="product-message" class="notice" style="grid-column: span 2">Готово.</div>
+      </div>
+
+      <div id="products-list"></div>
     </section>
 
     <section class="card" style="margin-top:16px">
@@ -631,6 +708,7 @@ export function renderDashboard(): string {
       summary: null,
       locations: [],
       units: [],
+      categories: [],
       products: [],
       recipes: [],
       kmrsItems: [],
@@ -766,6 +844,56 @@ export function renderDashboard(): string {
       return state.units.find(function (unit) { return unit.id === id; }) || null;
     }
 
+    function categoryById(id) {
+      return state.categories.find(function (category) { return category.id === id; }) || null;
+    }
+
+    function categoryPath(categoryId) {
+      const parts = [];
+      const seen = new Set();
+      let category = categoryById(categoryId);
+
+      while (category && !seen.has(category.id)) {
+        seen.add(category.id);
+        parts.unshift(category.name);
+        category = categoryById(category.parentId);
+      }
+
+      return parts.length > 0 ? parts.join(" / ") : "Без категории";
+    }
+
+    function sortedCategories() {
+      return state.categories.slice().sort(function (left, right) {
+        return categoryPath(left.id).localeCompare(categoryPath(right.id), "ru-RU");
+      });
+    }
+
+    function productTypeLabel(value) {
+      const labels = {
+        raw: "сырье",
+        prepared: "полуфабрикат",
+        menu_item: "блюдо",
+        bar_item: "бар",
+        packaging: "упаковка",
+        supply: "хозтовар",
+        service: "услуга"
+      };
+      return labels[value] || value;
+    }
+
+    function inventoryPolicyLabel(value) {
+      const labels = {
+        tracked: "склад",
+        theoretical_only: "только норма",
+        not_tracked: "без учета"
+      };
+      return labels[value] || value;
+    }
+
+    function productWastePercent(product) {
+      return Number(product && product.defaultWastePercent ? product.defaultWastePercent : 0);
+    }
+
     function moneyOrDash(value, currency) {
       return value === null || value === undefined ? "—" : money.format(value) + " " + currency;
     }
@@ -833,7 +961,7 @@ export function renderDashboard(): string {
 
     function setBusy(value) {
       state.busy = value;
-      for (const id of ["save-key", "import-menu", "refresh-kmrs", "link-all-kmrs"]) {
+      for (const id of ["save-key", "import-menu", "refresh-kmrs", "link-all-kmrs", "add-product", "add-category", "refresh-products"]) {
         document.getElementById(id).disabled = value;
       }
       for (const id of ["editor-save", "editor-activate", "editor-add-line"]) {
@@ -932,6 +1060,68 @@ export function renderDashboard(): string {
         ];
       });
       root.appendChild(table(["Продукт", "Кол-во", "Сумма"], body));
+    }
+
+    function renderProductControls() {
+      fillSelect(document.getElementById("product-unit"), state.units, function (unit) {
+        return unit.code + " — " + unit.name;
+      });
+
+      const categorySelect = document.getElementById("product-category");
+      categorySelect.replaceChildren();
+      const parentSelect = document.getElementById("category-parent");
+      parentSelect.replaceChildren();
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "Без категории";
+      categorySelect.appendChild(empty);
+      const root = document.createElement("option");
+      root.value = "";
+      root.textContent = "Корень";
+      parentSelect.appendChild(root);
+      for (const category of sortedCategories()) {
+        const option = document.createElement("option");
+        option.value = category.id;
+        option.textContent = categoryPath(category.id);
+        categorySelect.appendChild(option);
+        parentSelect.appendChild(option.cloneNode(true));
+      }
+    }
+
+    function renderProducts() {
+      const root = document.getElementById("products-list");
+      const badge = document.getElementById("products-badge");
+      const search = document.getElementById("product-search").value.trim().toLowerCase();
+      const products = state.products.filter(function (product) {
+        return !search ||
+          product.name.toLowerCase().includes(search) ||
+          text(product.sku).toLowerCase().includes(search);
+      });
+      root.replaceChildren();
+      badge.textContent = state.products.length + " продуктов";
+
+      if (products.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "notice";
+        empty.textContent = "Продукты не найдены.";
+        root.appendChild(empty);
+        return;
+      }
+
+      const rows = products.map(function (product) {
+        const unit = unitById(product.baseUnitId);
+        const category = categoryById(product.categoryId);
+        return [
+          product.name,
+          unit ? unit.code : "—",
+          category ? categoryPath(category.id) : "Без категории",
+          productTypeLabel(product.productType),
+          inventoryPolicyLabel(product.inventoryPolicy),
+          money.format(productWastePercent(product)) + "%"
+        ];
+      });
+
+      root.appendChild(table(["Продукт", "Ед.", "Категория", "Тип", "Учет", "Потери"], rows));
     }
 
     function renderWriteoff(writeoff) {
@@ -1222,6 +1412,7 @@ export function renderDashboard(): string {
       const firstProduct = state.products[0] || null;
       if (firstProduct) {
         document.getElementById("editor-line-unit").value = firstProduct.baseUnitId;
+        document.getElementById("editor-line-waste").value = productWastePercent(firstProduct);
       }
 
       document.getElementById("editor-stats").replaceChildren(
@@ -1237,6 +1428,7 @@ export function renderDashboard(): string {
         const product = productById(event.target.value);
         if (product) {
           document.getElementById("editor-line-unit").value = product.baseUnitId;
+          document.getElementById("editor-line-waste").value = productWastePercent(product);
         }
       });
       document.getElementById("editor-save").addEventListener("click", saveRecipeEditorHeader);
@@ -1440,6 +1632,122 @@ export function renderDashboard(): string {
       return trimmed ? Number(trimmed) : undefined;
     }
 
+    function setProductMessage(message, isError) {
+      const el = document.getElementById("product-message");
+      el.textContent = message;
+      el.className = isError ? "notice error" : "notice";
+    }
+
+    function setCategoryMessage(message, isError) {
+      const el = document.getElementById("category-message");
+      el.textContent = message;
+      el.className = isError ? "notice error" : "notice";
+    }
+
+    function syncRecipeEditorProductOptions(preferredProductId) {
+      const productSelect = document.getElementById("editor-line-product");
+      const unitSelect = document.getElementById("editor-line-unit");
+
+      if (!productSelect || !unitSelect) {
+        return;
+      }
+
+      fillSelect(productSelect, state.products, function (product) {
+        return product.name;
+      });
+      const preferred = productById(preferredProductId) || state.products[0] || null;
+
+      if (!preferred) {
+        return;
+      }
+
+      productSelect.value = preferred.id;
+      unitSelect.value = preferred.baseUnitId;
+      document.getElementById("editor-line-waste").value = productWastePercent(preferred);
+    }
+
+    async function refreshProducts() {
+      const org = encodeURIComponent(state.summary.organization.id);
+      const result = await fetchJson("/v1/products?organizationId=" + org + "&limit=500");
+      state.products = result.data;
+      renderProducts();
+      syncRecipeEditorProductOptions(document.getElementById("editor-line-product")?.value);
+    }
+
+    async function createProductFromForm() {
+      const nameInput = document.getElementById("product-name");
+      const name = nameInput.value.trim();
+
+      if (!name) {
+        setProductMessage("Введите название продукта.", true);
+        nameInput.focus();
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        const payload = {
+          organizationId: state.summary.organization.id,
+          name: name,
+          baseUnitId: document.getElementById("product-unit").value,
+          categoryId: document.getElementById("product-category").value || undefined,
+          productType: document.getElementById("product-type").value,
+          inventoryPolicy: document.getElementById("product-policy").value,
+          defaultWastePercent: optionalNumber(document.getElementById("product-waste").value) || 0
+        };
+        const response = await fetchJson("/v1/products", {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify(payload)
+        });
+        await refreshProducts();
+        syncRecipeEditorProductOptions(response.data.id);
+        nameInput.value = "";
+        document.getElementById("product-waste").value = "0";
+        setProductMessage("Продукт добавлен: " + response.data.name + ".", false);
+      } catch (error) {
+        setProductMessage(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function createCategoryFromForm() {
+      const nameInput = document.getElementById("category-name");
+      const name = nameInput.value.trim();
+
+      if (!name) {
+        setCategoryMessage("Введите название категории.", true);
+        nameInput.focus();
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        const response = await fetchJson("/v1/product-categories", {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            organizationId: state.summary.organization.id,
+            name: name,
+            parentId: document.getElementById("category-parent").value || undefined
+          })
+        });
+        state.categories.push(response.data);
+        renderProductControls();
+        renderProducts();
+        document.getElementById("product-category").value = response.data.id;
+        nameInput.value = "";
+        setCategoryMessage("Категория создана: " + categoryPath(response.data.id) + ".", false);
+      } catch (error) {
+        setCategoryMessage(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
     async function refreshKmrs() {
       setBusy(true);
       setNotice("Обновляю KMRS данные...", false);
@@ -1610,6 +1918,21 @@ export function renderDashboard(): string {
       document.getElementById("refresh-kmrs").addEventListener("click", refreshKmrs);
       document.getElementById("link-all-kmrs").addEventListener("click", linkAllSuggestedMenuItems);
       document.getElementById("menu-search").addEventListener("input", renderKmrsMenu);
+      document.getElementById("add-category").addEventListener("click", createCategoryFromForm);
+      document.getElementById("add-product").addEventListener("click", createProductFromForm);
+      document.getElementById("refresh-products").addEventListener("click", async function () {
+        setBusy(true);
+
+        try {
+          await refreshProducts();
+          setProductMessage("Справочник продуктов обновлен.", false);
+        } catch (error) {
+          setProductMessage(error.message, true);
+        } finally {
+          setBusy(false);
+        }
+      });
+      document.getElementById("product-search").addEventListener("input", renderProducts);
       document.getElementById("kmrs-location").addEventListener("change", function () {
         state.selectedLocationId = currentLocationId();
         localStorage.setItem("tagamAccountingLocationId", state.selectedLocationId);
@@ -1672,11 +1995,14 @@ export function renderDashboard(): string {
         ]);
         state.locations = result[0].data.locations;
         state.units = result[0].data.units;
+        state.categories = result[0].data.categories;
         state.products = result[1].data;
         state.recipes = result[2].data;
         renderRecipe(result[3].data);
         renderInventory(result[4].data, summary.organization.defaultCurrency);
         renderWriteoff(result[5].data);
+        renderProductControls();
+        renderProducts();
         renderKmrsControls();
         wireEvents();
         renderKmrsMenu();

@@ -2,6 +2,7 @@ export { bootstrapOrganization } from "./bootstrap.js";
 export type { BootstrapOrganizationInput, BootstrapOrganizationResult } from "./bootstrap.js";
 export {
   getDemoSummary,
+  createProductCategory,
   listLocations,
   listOrganizations,
   listProcessingMethods,
@@ -9,6 +10,7 @@ export {
   listUnits,
 } from "./catalog.js";
 export type {
+  CreateProductCategoryInput,
   DemoSummaryRecord,
   LocationRecord,
   OrganizationRecord,

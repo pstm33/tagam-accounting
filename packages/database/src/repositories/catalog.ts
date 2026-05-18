@@ -39,6 +39,13 @@ export type ProductCategoryRecord = {
   accountingCode: string | null;
 };
 
+export type CreateProductCategoryInput = {
+  organizationId: string;
+  name: string;
+  parentId?: string;
+  accountingCode?: string;
+};
+
 export type ProcessingMethodRecord = {
   id: string;
   organizationId: string;
@@ -142,6 +149,61 @@ export async function listProductCategories(
   return result.rows;
 }
 
+export async function createProductCategory(
+  pool: DatabasePool,
+  input: CreateProductCategoryInput,
+): Promise<ProductCategoryRecord> {
+  const name = input.name.trim();
+
+  if (!name) {
+    throw new Error("name is required");
+  }
+
+  if (input.parentId !== undefined) {
+    await ensureProductCategoryExists(pool, input.organizationId, input.parentId);
+  }
+
+  try {
+    const result = await pool.query<ProductCategoryRecord>(
+      `
+        insert into product_categories (
+          organization_id,
+          parent_id,
+          name,
+          accounting_code
+        )
+        values ($1, $2, $3, $4)
+        returning
+          id,
+          organization_id as "organizationId",
+          parent_id as "parentId",
+          name,
+          accounting_code as "accountingCode"
+      `,
+      [
+        input.organizationId,
+        input.parentId ?? null,
+        name,
+        input.accountingCode?.trim() || null,
+      ],
+    );
+
+    const category = result.rows[0];
+
+    if (!category) {
+      throw new Error("Failed to create product category");
+    }
+
+    return category;
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      throw new Error("Product category name already exists");
+    }
+
+    throw error;
+  }
+}
+
 export async function listProcessingMethods(
   pool: DatabasePool,
   organizationId: string,
@@ -161,6 +223,32 @@ export async function listProcessingMethods(
   );
 
   return result.rows;
+}
+
+async function ensureProductCategoryExists(pool: DatabasePool, organizationId: string, categoryId: string): Promise<void> {
+  const result = await pool.query<{ id: string }>(
+    `
+      select id
+      from product_categories
+      where organization_id = $1
+        and id = $2
+      limit 1
+    `,
+    [organizationId, categoryId],
+  );
+
+  if (!result.rows[0]) {
+    throw new Error("Product category was not found");
+  }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23505"
+  );
 }
 
 export async function getDemoSummary(pool: DatabasePool): Promise<DemoSummaryRecord | null> {

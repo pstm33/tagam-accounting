@@ -6,6 +6,7 @@ import {
   commitKmrsSaleWriteoff,
   createDatabasePool,
   createProduct,
+  createProductCategory,
   deleteRecipeLine,
   getDemoSummary,
   getInventorySummary,
@@ -64,6 +65,13 @@ type CreateProductBody = {
   productType?: string;
   inventoryPolicy?: string;
   defaultWastePercent?: number;
+};
+
+type CreateProductCategoryBody = {
+  organizationId?: string;
+  parentId?: string;
+  name?: string;
+  accountingCode?: string;
 };
 
 type ListRecipesQuery = {
@@ -231,9 +239,15 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       message.includes("organizationId is required") ||
       message.includes("locationId is required") ||
       message.includes("baseUrl is required") ||
+      message.includes("baseUnitId is required") ||
+      message.includes("name is required") ||
       message.includes("kmrsMerchantId is required") ||
       message.includes("restaurantSlug is required") ||
       message.includes("recipeVersionId is required") ||
+      message.includes("productType must") ||
+      message.includes("inventoryPolicy must") ||
+      message.includes("defaultWastePercent must") ||
+      message.includes("parentId must") ||
       message.includes("ingredientProductId is required") ||
       message.includes("unitId is required") ||
       message.includes("quantity must") ||
@@ -256,6 +270,8 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     }
 
     if (
+      message.includes("Product name already exists") ||
+      message.includes("Product category name already exists") ||
       message.includes("Cannot commit writeoff") ||
       message.includes("already has a committed writeoff") ||
       message.startsWith("Not enough stock")
@@ -419,16 +435,38 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
 
     const product = await createProduct(pool, {
       organizationId,
-      baseUnitId: body.baseUnitId,
+      baseUnitId: body.baseUnitId.trim(),
       name: body.name.trim(),
-      ...(body.categoryId !== undefined ? { categoryId: body.categoryId } : {}),
-      ...(body.sku !== undefined ? { sku: body.sku } : {}),
+      ...(body.categoryId?.trim() ? { categoryId: body.categoryId.trim() } : {}),
+      ...(body.sku?.trim() ? { sku: body.sku.trim() } : {}),
       ...(body.productType !== undefined ? { productType: body.productType } : {}),
       ...(body.inventoryPolicy !== undefined ? { inventoryPolicy: body.inventoryPolicy } : {}),
       ...(body.defaultWastePercent !== undefined ? { defaultWastePercent: body.defaultWastePercent } : {}),
     });
 
     return reply.code(201).send({ data: product });
+  });
+
+  app.post<{ Body: CreateProductCategoryBody }>("/v1/product-categories", async (request, reply) => {
+    const body = request.body;
+    const organizationId = body.organizationId ?? getHeaderOrganizationId(request);
+
+    if (!organizationId) {
+      return reply.code(400).send({ error: "organizationId is required" });
+    }
+
+    if (!body.name?.trim()) {
+      return reply.code(400).send({ error: "name is required" });
+    }
+
+    const category = await createProductCategory(pool, {
+      organizationId,
+      name: body.name.trim(),
+      ...(body.parentId?.trim() ? { parentId: body.parentId.trim() } : {}),
+      ...(body.accountingCode?.trim() ? { accountingCode: body.accountingCode.trim() } : {}),
+    });
+
+    return reply.code(201).send({ data: category });
   });
 
   app.get<{ Querystring: ListRecipesQuery }>("/v1/recipes", async (request) => {
