@@ -7,6 +7,7 @@ import {
   createDatabasePool,
   createProduct,
   createProductCategory,
+  createRecipe,
   deleteRecipeLine,
   getDemoSummary,
   getInventorySummary,
@@ -72,6 +73,18 @@ type CreateProductCategoryBody = {
   parentId?: string;
   name?: string;
   accountingCode?: string;
+};
+
+type CreateRecipeBody = {
+  organizationId?: string;
+  name?: string;
+  recipeType?: string;
+  outputProductId?: string;
+  yieldQuantity?: number;
+  yieldUnitId?: string;
+  targetFoodCostPercent?: number;
+  menuPrice?: number;
+  currency?: string;
 };
 
 type ListRecipesQuery = {
@@ -248,6 +261,7 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       message.includes("productType must") ||
       message.includes("inventoryPolicy must") ||
       message.includes("defaultWastePercent must") ||
+      message.includes("recipeType must") ||
       message.includes("parentId must") ||
       message.includes("ingredientProductId is required") ||
       message.includes("childRecipeVersionId") ||
@@ -276,6 +290,7 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     if (
       message.includes("Product name already exists") ||
       message.includes("Product category name already exists") ||
+      message.includes("Recipe name already exists") ||
       message.includes("Cannot commit writeoff") ||
       message.includes("already has a committed writeoff") ||
       message.startsWith("Not enough stock")
@@ -481,6 +496,37 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     });
 
     return { data: recipes };
+  });
+
+  app.post<{ Body: CreateRecipeBody }>("/v1/recipes", async (request, reply) => {
+    const body = request.body;
+    const organizationId = body.organizationId ?? getHeaderOrganizationId(request);
+
+    if (!organizationId) {
+      return reply.code(400).send({ error: "organizationId is required" });
+    }
+
+    if (!body.name?.trim()) {
+      return reply.code(400).send({ error: "name is required" });
+    }
+
+    if (!body.yieldUnitId?.trim()) {
+      return reply.code(400).send({ error: "yieldUnitId is required" });
+    }
+
+    const recipe = await createRecipe(pool, {
+      organizationId,
+      name: body.name.trim(),
+      yieldQuantity: body.yieldQuantity ?? 1,
+      yieldUnitId: body.yieldUnitId.trim(),
+      ...(body.recipeType !== undefined ? { recipeType: body.recipeType } : {}),
+      ...(body.outputProductId?.trim() ? { outputProductId: body.outputProductId.trim() } : {}),
+      ...(body.targetFoodCostPercent !== undefined ? { targetFoodCostPercent: body.targetFoodCostPercent } : {}),
+      ...(body.menuPrice !== undefined ? { menuPrice: body.menuPrice } : {}),
+      ...(body.currency !== undefined ? { currency: body.currency } : {}),
+    });
+
+    return reply.code(201).send({ data: recipe });
   });
 
   app.get<{ Params: RecipeDetailParams; Querystring: RecipeDetailQuery }>(

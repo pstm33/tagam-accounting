@@ -471,13 +471,21 @@ export function renderDashboard(): string {
       grid-template-columns: .75fr 1.25fr 1.25fr .6fr .55fr .8fr .55fr auto;
     }
 
+    .recipe-form,
     .product-form,
     .category-form {
       display: grid;
-      grid-template-columns: 1.3fr .8fr .9fr .75fr .85fr .55fr auto;
       gap: 10px;
       align-items: end;
       margin-bottom: 12px;
+    }
+
+    .recipe-form {
+      grid-template-columns: 1.2fr .8fr 1fr .5fr .6fr .6fr .6fr auto;
+    }
+
+    .product-form {
+      grid-template-columns: 1.3fr .8fr .9fr .75fr .85fr .55fr auto;
     }
 
     .category-form {
@@ -496,6 +504,7 @@ export function renderDashboard(): string {
 
       .editor-grid,
       .editor-grid.wide,
+      .recipe-form,
       .product-form,
       .category-form {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -537,6 +546,7 @@ export function renderDashboard(): string {
       .subtoolbar,
       .editor-grid,
       .editor-grid.wide,
+      .recipe-form,
       .product-form,
       .category-form {
         grid-template-columns: 1fr;
@@ -651,6 +661,37 @@ export function renderDashboard(): string {
         <h2>KMRS меню и техкарты</h2>
         <span class="pill warn" id="kmrs-badge">KMRS</span>
       </div>
+
+      <div class="recipe-form">
+        <label>Новая техкарта
+          <input id="new-recipe-name" autocomplete="off" placeholder="Название">
+        </label>
+        <label>Тип
+          <select id="new-recipe-type">
+            <option value="menu_item">блюдо</option>
+            <option value="prep_item">полуфабрикат</option>
+            <option value="sub_recipe">вложенная</option>
+            <option value="bar_item">бар</option>
+          </select>
+        </label>
+        <label>Учетный продукт
+          <select id="new-recipe-output-product"></select>
+        </label>
+        <label>Выход
+          <input id="new-recipe-yield" type="number" min="0.001" step="0.001" value="1">
+        </label>
+        <label>Ед.
+          <select id="new-recipe-yield-unit"></select>
+        </label>
+        <label>Цена
+          <input id="new-recipe-price" type="number" min="0" step="0.001">
+        </label>
+        <label>Food cost %
+          <input id="new-recipe-target" type="number" min="0.001" step="0.001" value="32">
+        </label>
+        <button class="primary" id="add-recipe" type="button">Создать</button>
+      </div>
+      <div id="recipe-message" class="notice" style="margin-bottom:12px">Можно создать блюдо, полуфабрикат или вложенную заготовку.</div>
 
       <div class="toolbar">
         <label>Заведение
@@ -977,7 +1018,7 @@ export function renderDashboard(): string {
 
     function setBusy(value) {
       state.busy = value;
-      for (const id of ["save-key", "import-menu", "refresh-kmrs", "link-all-kmrs", "add-product", "add-category", "refresh-products"]) {
+      for (const id of ["save-key", "import-menu", "refresh-kmrs", "link-all-kmrs", "add-recipe", "add-product", "add-category", "refresh-products"]) {
         document.getElementById(id).disabled = value;
       }
       for (const id of ["editor-save", "editor-activate", "editor-add-line"]) {
@@ -1101,6 +1142,24 @@ export function renderDashboard(): string {
         option.textContent = categoryPath(category.id);
         categorySelect.appendChild(option);
         parentSelect.appendChild(option.cloneNode(true));
+      }
+    }
+
+    function renderRecipeCreateControls() {
+      fillSelect(document.getElementById("new-recipe-yield-unit"), state.units, function (unit) {
+        return unit.code;
+      });
+      const outputSelect = document.getElementById("new-recipe-output-product");
+      outputSelect.replaceChildren();
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "Не связан";
+      outputSelect.appendChild(empty);
+      for (const product of state.products) {
+        const option = document.createElement("option");
+        option.value = product.id;
+        option.textContent = product.name + " · " + productTypeLabel(product.productType);
+        outputSelect.appendChild(option);
       }
     }
 
@@ -1709,6 +1768,12 @@ export function renderDashboard(): string {
       el.className = isError ? "notice error" : "notice";
     }
 
+    function setRecipeMessage(message, isError) {
+      const el = document.getElementById("recipe-message");
+      el.textContent = message;
+      el.className = isError ? "notice error" : "notice";
+    }
+
     function syncRecipeEditorProductOptions(preferredProductId) {
       const productSelect = document.getElementById("editor-line-product");
       const unitSelect = document.getElementById("editor-line-unit");
@@ -1736,6 +1801,7 @@ export function renderDashboard(): string {
       const result = await fetchJson("/v1/products?organizationId=" + org + "&limit=500");
       state.products = result.data;
       renderProducts();
+      renderRecipeCreateControls();
       syncRecipeEditorProductOptions(document.getElementById("editor-line-product")?.value);
     }
 
@@ -1808,6 +1874,47 @@ export function renderDashboard(): string {
         setCategoryMessage("Категория создана: " + categoryPath(response.data.id) + ".", false);
       } catch (error) {
         setCategoryMessage(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function createRecipeFromForm() {
+      const nameInput = document.getElementById("new-recipe-name");
+      const name = nameInput.value.trim();
+
+      if (!name) {
+        setRecipeMessage("Введите название техкарты.", true);
+        nameInput.focus();
+        return;
+      }
+
+      setBusy(true);
+
+      try {
+        const response = await fetchJson("/v1/recipes", {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            organizationId: state.summary.organization.id,
+            name: name,
+            recipeType: document.getElementById("new-recipe-type").value,
+            outputProductId: document.getElementById("new-recipe-output-product").value || undefined,
+            yieldQuantity: Number(document.getElementById("new-recipe-yield").value),
+            yieldUnitId: document.getElementById("new-recipe-yield-unit").value,
+            menuPrice: optionalNumber(document.getElementById("new-recipe-price").value),
+            targetFoodCostPercent: optionalNumber(document.getElementById("new-recipe-target").value),
+            currency: state.summary.organization.defaultCurrency
+          })
+        });
+        await refreshRecipes();
+        renderKmrsMenu();
+        nameInput.value = "";
+        document.getElementById("new-recipe-price").value = "";
+        setRecipeMessage("Техкарта создана: " + response.data.recipeName + " / " + response.data.versionCode + ".", false);
+        await openRecipeEditor(response.data.recipeVersionId);
+      } catch (error) {
+        setRecipeMessage(error.message, true);
       } finally {
         setBusy(false);
       }
@@ -1983,6 +2090,7 @@ export function renderDashboard(): string {
       document.getElementById("refresh-kmrs").addEventListener("click", refreshKmrs);
       document.getElementById("link-all-kmrs").addEventListener("click", linkAllSuggestedMenuItems);
       document.getElementById("menu-search").addEventListener("input", renderKmrsMenu);
+      document.getElementById("add-recipe").addEventListener("click", createRecipeFromForm);
       document.getElementById("add-category").addEventListener("click", createCategoryFromForm);
       document.getElementById("add-product").addEventListener("click", createProductFromForm);
       document.getElementById("refresh-products").addEventListener("click", async function () {
@@ -2068,6 +2176,7 @@ export function renderDashboard(): string {
         renderWriteoff(result[5].data);
         renderProductControls();
         renderProducts();
+        renderRecipeCreateControls();
         renderKmrsControls();
         wireEvents();
         renderKmrsMenu();
