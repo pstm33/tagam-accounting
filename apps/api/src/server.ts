@@ -11,6 +11,7 @@ import {
   getRecipeCostDetail,
   importKmrsMenuSnapshot,
   linkKmrsMenuItemToRecipe,
+  linkKmrsMenuItemsToSuggestedRecipes,
   listKmrsConnections,
   listKmrsImportedMenuItems,
   listLocations,
@@ -123,6 +124,12 @@ type KmrsMenuItemLinkQuery = {
 type KmrsMenuItemLinkBody = {
   organizationId?: string;
   recipeVersionId?: string;
+};
+
+type KmrsSuggestedRecipeLinkBody = {
+  organizationId?: string;
+  locationId?: string;
+  kmrsConnectionId?: string;
 };
 
 type KmrsWriteoffBody = {
@@ -480,6 +487,36 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     });
 
     return { data: rows };
+  });
+
+  app.post<{ Body: KmrsSuggestedRecipeLinkBody }>("/v1/kmrs/menu-items/link-suggested", async (request, reply) => {
+    const organizationId = request.body.organizationId ?? getHeaderOrganizationId(request);
+
+    if (!organizationId) {
+      return reply.code(400).send({ error: "organizationId is required" });
+    }
+
+    if (!request.body.locationId) {
+      return reply.code(400).send({ error: "locationId is required" });
+    }
+
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId,
+      locationId: request.body.locationId,
+      ...(request.body.kmrsConnectionId !== undefined ? { kmrsConnectionId: request.body.kmrsConnectionId } : {}),
+    }, { require: ["locationId"] });
+
+    if (scopeDenial) {
+      return forbidden(reply, scopeDenial);
+    }
+
+    const result = await linkKmrsMenuItemsToSuggestedRecipes(pool, {
+      organizationId,
+      locationId: request.body.locationId,
+      ...(request.body.kmrsConnectionId !== undefined ? { kmrsConnectionId: request.body.kmrsConnectionId } : {}),
+    });
+
+    return reply.send({ data: result });
   });
 
   app.put<{ Params: KmrsMenuItemLinkParams; Body: KmrsMenuItemLinkBody }>(

@@ -89,6 +89,21 @@ export type KmrsMenuRecipeLinkRecord = {
   updatedAt: string;
 };
 
+export type KmrsSuggestedRecipeLinkResult = {
+  totalMenuItems: number;
+  matchedRecipeCount: number;
+  linkedCount: number;
+  alreadyLinkedCount: number;
+  skippedWithoutRecipeCount: number;
+};
+
+type KmrsSuggestedRecipeLinkCandidate = {
+  kmrsMenuItemId: string;
+  currentRecipeVersionId: string | null;
+  recipeId: string;
+  recipeVersionId: string;
+};
+
 export async function importKmrsMenuSnapshot(
   pool: DatabasePool,
   input: KmrsMenuImportInput,
@@ -564,6 +579,125 @@ export async function linkKmrsMenuItemToRecipe(
 
     await client.query("commit");
     return getLink(link.rows[0]);
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function linkKmrsMenuItemsToSuggestedRecipes(
+  pool: DatabasePool,
+  input: { organizationId: string; locationId: string; kmrsConnectionId?: string },
+): Promise<KmrsSuggestedRecipeLinkResult> {
+  const client = await pool.connect();
+  const params: unknown[] = [input.organizationId, input.locationId];
+  const menuClauses = ["organization_id = $1", "location_id = $2"];
+  const aliasedMenuClauses = ["kmi.organization_id = $1", "kmi.location_id = $2"];
+
+  if (input.kmrsConnectionId) {
+    params.push(input.kmrsConnectionId);
+    menuClauses.push(`kmrs_connection_id = $${params.length}`);
+    aliasedMenuClauses.push(`kmi.kmrs_connection_id = $${params.length}`);
+  }
+
+  try {
+    await client.query("begin");
+    const totalResult = await client.query<{ count: string }>(
+      `
+        select count(*) as count
+        from kmrs_menu_items
+        where ${menuClauses.join(" and ")}
+      `,
+      params,
+    );
+    const totalMenuItems = Number(totalResult.rows[0]?.count ?? 0);
+    const candidateResult = await client.query<KmrsSuggestedRecipeLinkCandidate>(
+      `
+        select
+          kmi.id as "kmrsMenuItemId",
+          current_link.active_recipe_version_id as "currentRecipeVersionId",
+          suggested.recipe_id as "recipeId",
+          suggested.recipe_version_id as "recipeVersionId"
+        from kmrs_menu_items kmi
+        join lateral (
+          select
+            r.id as recipe_id,
+            rv.id as recipe_version_id
+          from recipes r
+          join recipe_versions rv on rv.recipe_id = r.id
+          where r.organization_id = kmi.organization_id
+            and lower(btrim(r.name)) = lower(btrim(kmi.name))
+            and rv.status in ('active', 'draft')
+          order by
+            case rv.status when 'active' then 0 when 'draft' then 1 else 2 end,
+            rv.effective_from desc nulls last,
+            rv.created_at desc
+          limit 1
+        ) suggested on true
+        left join lateral (
+          select active_recipe_version_id
+          from kmrs_menu_recipe_links
+          where organization_id = kmi.organization_id
+            and kmrs_menu_item_id = kmi.id
+            and status = 'active'
+          order by updated_at desc
+          limit 1
+        ) current_link on true
+        where ${aliasedMenuClauses.join(" and ")}
+        order by kmi.name
+      `,
+      params,
+    );
+    const candidates = candidateResult.rows;
+    const alreadyLinked = candidates.filter((candidate) => (
+      candidate.currentRecipeVersionId === candidate.recipeVersionId
+    ));
+    const targets = candidates.filter((candidate) => (
+      candidate.currentRecipeVersionId !== candidate.recipeVersionId
+    ));
+
+    for (const target of targets) {
+      await client.query(
+        `
+          update kmrs_menu_recipe_links
+          set status = 'archived'
+          where organization_id = $1
+            and kmrs_menu_item_id = $2
+            and status = 'active'
+        `,
+        [input.organizationId, target.kmrsMenuItemId],
+      );
+      await client.query(
+        `
+          insert into kmrs_menu_recipe_links (
+            organization_id,
+            kmrs_menu_item_id,
+            recipe_id,
+            active_recipe_version_id,
+            status
+          )
+          values ($1, $2, $3, $4, 'active')
+        `,
+        [
+          input.organizationId,
+          target.kmrsMenuItemId,
+          target.recipeId,
+          target.recipeVersionId,
+        ],
+      );
+    }
+
+    await client.query("commit");
+
+    return {
+      totalMenuItems,
+      matchedRecipeCount: candidates.length,
+      linkedCount: targets.length,
+      alreadyLinkedCount: alreadyLinked.length,
+      skippedWithoutRecipeCount: Math.max(totalMenuItems - candidates.length, 0),
+    };
   } catch (error) {
     await client.query("rollback");
     throw error;

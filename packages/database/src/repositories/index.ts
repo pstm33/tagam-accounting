@@ -30,6 +30,7 @@ export {
   getKmrsMenuItemAccessTarget,
   importKmrsMenuSnapshot,
   linkKmrsMenuItemToRecipe,
+  linkKmrsMenuItemsToSuggestedRecipes,
   listKmrsConnections,
   listKmrsImportedMenuItems,
   unlinkKmrsMenuItemRecipe,
@@ -42,6 +43,7 @@ export type {
   KmrsMenuImportItem,
   KmrsMenuImportResult,
   KmrsMenuRecipeLinkRecord,
+  KmrsSuggestedRecipeLinkResult,
 } from "./kmrs-menu-import.js";
 export { commitKmrsSaleWriteoff, previewKmrsSaleWriteoff } from "./kmrs-writeoffs.js";
 export type {

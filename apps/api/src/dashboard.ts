@@ -235,7 +235,7 @@ export function renderDashboard(): string {
 
     .subtoolbar {
       display: grid;
-      grid-template-columns: minmax(220px, .9fr) minmax(180px, .7fr) 1fr;
+      grid-template-columns: minmax(220px, .9fr) minmax(160px, .55fr) minmax(160px, .55fr) 1fr;
       gap: 10px;
       align-items: end;
       margin: 12px 0;
@@ -535,6 +535,7 @@ export function renderDashboard(): string {
           <input id="menu-search" autocomplete="off" placeholder="Название блюда">
         </label>
         <button class="ghost" id="refresh-kmrs" type="button">Обновить</button>
+        <button class="primary" id="link-all-kmrs" type="button">Связать все</button>
         <div id="kmrs-message" class="notice">Данные KMRS загрузятся после входа в модуль.</div>
       </div>
 
@@ -724,7 +725,7 @@ export function renderDashboard(): string {
 
     function setBusy(value) {
       state.busy = value;
-      for (const id of ["save-key", "import-menu", "refresh-kmrs"]) {
+      for (const id of ["save-key", "import-menu", "refresh-kmrs", "link-all-kmrs"]) {
         document.getElementById(id).disabled = value;
       }
       for (const button of document.querySelectorAll("[data-action]")) {
@@ -1106,6 +1107,43 @@ export function renderDashboard(): string {
       }
     }
 
+    async function linkAllSuggestedMenuItems() {
+      setBusy(true);
+
+      try {
+        await refreshRecipes();
+        const connection = currentKmrsConnection();
+
+        if (!connection) {
+          setNotice("Сначала загрузите подключение KMRS.", true);
+          return;
+        }
+
+        setNotice("Связываю техкарты по совпадению названий...", false);
+        const response = await fetchJson("/v1/kmrs/menu-items/link-suggested", {
+          method: "POST",
+          headers: authHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            organizationId: state.summary.organization.id,
+            locationId: currentLocationId(),
+            kmrsConnectionId: connection.id
+          })
+        });
+        await refreshKmrs();
+        const data = response.data;
+        setNotice(
+          "Связано " + data.linkedCount +
+          ", уже было связано " + data.alreadyLinkedCount +
+          ", без совпадающей техкарты " + data.skippedWithoutRecipeCount + ".",
+          false
+        );
+      } catch (error) {
+        setNotice(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
     function wireEvents() {
       document.getElementById("save-key").addEventListener("click", function () {
         state.restaurantSlug = document.getElementById("kmrs-slug").value.trim();
@@ -1124,6 +1162,7 @@ export function renderDashboard(): string {
       });
       document.getElementById("import-menu").addEventListener("click", importMenu);
       document.getElementById("refresh-kmrs").addEventListener("click", refreshKmrs);
+      document.getElementById("link-all-kmrs").addEventListener("click", linkAllSuggestedMenuItems);
       document.getElementById("menu-search").addEventListener("input", renderKmrsMenu);
       document.getElementById("kmrs-location").addEventListener("change", function () {
         state.selectedLocationId = currentLocationId();

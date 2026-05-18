@@ -60,6 +60,7 @@ const protectedRoutes = [
   { method: "POST", path: "/v1/products" },
   { method: "GET", path: "/v1/kmrs/connections" },
   { method: "GET", path: "/v1/kmrs/menu-items" },
+  { method: "POST", path: "/v1/kmrs/menu-items/link-suggested" },
   { method: "PUT", pathPrefix: "/v1/kmrs/menu-items/" },
   { method: "DELETE", pathPrefix: "/v1/kmrs/menu-items/" },
   { method: "GET", path: "/v1/kmrs/sync-runs" },
