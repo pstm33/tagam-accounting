@@ -681,8 +681,16 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     return { data: rows };
   });
 
-  app.get<{ Querystring: SupplierListQuery }>("/v1/suppliers", async (request) => {
+  app.get<{ Querystring: SupplierListQuery }>("/v1/suppliers", async (request, reply) => {
     const organizationId = getOrganizationId(request);
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId,
+    });
+
+    if (scopeDenial) {
+      return reply.code(403).send({ error: scopeDenial });
+    }
+
     const suppliers = await listSuppliers(pool, organizationId, {
       limit: parseLimit(request.query.limit, 100),
     });
@@ -696,6 +704,14 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
 
     if (!organizationId) {
       return reply.code(400).send({ error: "organizationId is required" });
+    }
+
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId,
+    });
+
+    if (scopeDenial) {
+      return reply.code(403).send({ error: scopeDenial });
     }
 
     if (!body.name?.trim()) {
@@ -716,8 +732,17 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
     return reply.code(201).send({ data: supplier });
   });
 
-  app.get<{ Querystring: PurchasingOverviewQuery }>("/v1/purchasing/overview", async (request) => {
+  app.get<{ Querystring: PurchasingOverviewQuery }>("/v1/purchasing/overview", async (request, reply) => {
     const organizationId = getOrganizationId(request);
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId,
+      ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+    }, { require: ["organizationId", "locationId"] });
+
+    if (scopeDenial) {
+      return reply.code(403).send({ error: scopeDenial });
+    }
+
     const overview = await getPurchasingOverview(pool, organizationId, {
       limit: parseLimit(request.query.limit, 50),
       ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
@@ -740,6 +765,15 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
 
     if (!body.supplierId?.trim()) {
       return reply.code(400).send({ error: "supplierId is required" });
+    }
+
+    const scopeDenial = getBridgeScopeDenial(authConfig, getAccountingPrincipal(request), {
+      organizationId,
+      locationId: body.locationId.trim(),
+    }, { require: ["organizationId", "locationId"] });
+
+    if (scopeDenial) {
+      return reply.code(403).send({ error: scopeDenial });
     }
 
     const result = await createPurchaseReceipt(pool, {
