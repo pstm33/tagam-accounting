@@ -14,6 +14,7 @@
     "db:seed:demo": "tsx packages/database/src/seed-demo.ts",
     "db:smoke": "tsx packages/database/src/smoke.ts",
     "localize:ru": "node scripts/localize-ru-catalog.mjs",
+    "seed:starter-purchases": "node scripts/seed-starter-purchases.mjs",
     "seed:starter-ttk": "node scripts/seed-starter-menu-ttk.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

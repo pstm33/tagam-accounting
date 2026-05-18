@@ -89,7 +89,8 @@ export async function bootstrapOrganization(
           ($1, 'kg', 'килограмм', 'weight', false),
           ($1, 'ml', 'миллилитр', 'volume', true),
           ($1, 'l', 'литр', 'volume', false),
-          ($1, 'pcs', 'штука', 'count', true)
+          ($1, 'pcs', 'штука', 'count', true),
+          ($1, 'dish', 'блюдо', 'count', false)
         returning
           id,
           code,

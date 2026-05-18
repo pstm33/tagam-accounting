@@ -100,6 +100,7 @@ type RecipeDetailParams = {
 type RecipeDetailQuery = {
   organizationId?: string;
   locationId?: string;
+  fulfillmentMode?: "dine_in" | "delivery";
 };
 
 type RecipeVersionPatchBody = {
@@ -190,12 +191,14 @@ type KmrsWriteoffBody = {
   orderedAt?: string;
   status?: string;
   paymentStatus?: string;
+  fulfillmentType?: "dine_in" | "delivery";
   lines?: Array<{
     kmrsItemId?: string;
     name?: string;
     quantity?: number;
     salePrice?: number;
     currency?: string;
+    fulfillmentType?: "dine_in" | "delivery";
     rawPayload?: unknown;
   }>;
   rawPayload?: unknown;
@@ -535,6 +538,7 @@ export function buildApi(options: ApiBuildOptions = {}): FastifyInstance {
       const organizationId = getOrganizationId(request);
       const detail = await getRecipeCostDetail(pool, organizationId, request.params.recipeVersionId, {
         ...(request.query.locationId !== undefined ? { locationId: request.query.locationId } : {}),
+        ...(request.query.fulfillmentMode !== undefined ? { fulfillmentMode: request.query.fulfillmentMode } : {}),
       });
 
       if (!detail) {
@@ -949,12 +953,14 @@ function parseKmrsWriteoffBody(request: FastifyRequest<{ Body: KmrsWriteoffBody 
     ...(body.orderedAt !== undefined ? { orderedAt: body.orderedAt } : {}),
     ...(body.status !== undefined ? { status: body.status } : {}),
     ...(body.paymentStatus !== undefined ? { paymentStatus: body.paymentStatus } : {}),
+    ...(body.fulfillmentType !== undefined ? { fulfillmentType: body.fulfillmentType } : {}),
     lines: (body.lines ?? []).map((line) => ({
       kmrsItemId: line.kmrsItemId ?? "",
       quantity: line.quantity ?? 0,
       ...(line.name !== undefined ? { name: line.name } : {}),
       ...(line.salePrice !== undefined ? { salePrice: line.salePrice } : {}),
       ...(line.currency !== undefined ? { currency: line.currency } : {}),
+      ...(line.fulfillmentType !== undefined ? { fulfillmentType: line.fulfillmentType } : {}),
       ...(line.rawPayload !== undefined ? { rawPayload: line.rawPayload } : {}),
     })),
     ...(body.rawPayload !== undefined ? { rawPayload: body.rawPayload } : {}),

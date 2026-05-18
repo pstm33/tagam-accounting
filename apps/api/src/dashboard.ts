@@ -889,13 +889,18 @@ export function renderDashboard(): string {
       return state.units.find(function (unit) { return unit.id === id; }) || null;
     }
 
+    function unitByCodeValue(code) {
+      return state.units.find(function (unit) { return unit.code === code; }) || null;
+    }
+
     function unitCodeLabel(code) {
       const labels = {
         g: "\u0433",
         kg: "\u043a\u0433",
         ml: "\u043c\u043b",
         l: "\u043b",
-        pcs: "\u0448\u0442"
+        pcs: "\u0448\u0442",
+        dish: "\u0431\u043b\u044e\u0434\u043e"
       };
       return labels[code] || code;
     }
@@ -1098,10 +1103,10 @@ export function renderDashboard(): string {
 
       const kpis = document.createElement("div");
       kpis.className = "stats";
-      kpis.appendChild(stat("Себестоимость", money.format(recipe.totalCost || 0) + " " + recipe.currency));
-      kpis.appendChild(stat("Food cost", money.format(recipe.foodCostPercent || 0) + "%"));
+      kpis.appendChild(stat("Зал", moneyOrDash(recipe.dineInTotalCost ?? recipe.totalCost, recipe.currency)));
+      kpis.appendChild(stat("Доставка", moneyOrDash(recipe.deliveryTotalCost, recipe.currency)));
+      kpis.appendChild(stat("Упаковка", moneyOrDash(recipe.deliveryPackagingCost, recipe.currency)));
       kpis.appendChild(stat("Цена в меню", money.format(Number(recipe.menuPrice || 0)) + " " + recipe.currency));
-      kpis.appendChild(stat("Рекоменд. цена", money.format(recipe.recommendedMenuPrice || 0) + " " + recipe.currency));
       root.appendChild(kpis);
 
       const rows = recipe.lines.map(function (line) {
@@ -1110,8 +1115,9 @@ export function renderDashboard(): string {
         badge.className = line.costStatus === "ok" ? "pill ok" : "pill bad";
         badge.textContent = line.costStatus === "ok" ? "ok" : line.costStatus;
         status.appendChild(badge);
+        const productName = line.productName + (line.fulfillmentMode === "delivery_packaging" ? " · доставка" : "");
         return [
-          line.productName,
+          productName,
           qty.format(line.stockInputQuantity) + " " + unitCodeLabel(line.unitCode),
           qty.format(line.preparedOutputQuantity) + " " + unitCodeLabel(line.unitCode),
           money.format(line.lineCost || 0) + " " + (line.currency || recipe.currency),
@@ -1164,6 +1170,7 @@ export function renderDashboard(): string {
       fillSelect(document.getElementById("new-recipe-yield-unit"), state.units, function (unit) {
         return unitCodeLabel(unit.code);
       });
+      syncNewRecipeYieldUnit();
       const outputSelect = document.getElementById("new-recipe-output-product");
       outputSelect.replaceChildren();
       const empty = document.createElement("option");
@@ -1175,6 +1182,26 @@ export function renderDashboard(): string {
         option.value = product.id;
         option.textContent = product.name + " · " + productTypeLabel(product.productType);
         outputSelect.appendChild(option);
+      }
+    }
+
+    function syncNewRecipeYieldUnit() {
+      const typeSelect = document.getElementById("new-recipe-type");
+      const unitSelect = document.getElementById("new-recipe-yield-unit");
+
+      if (!typeSelect || !unitSelect) {
+        return;
+      }
+
+      const preferredCode = typeSelect.value === "menu_item"
+        ? "dish"
+        : typeSelect.value === "prep_item" || typeSelect.value === "sub_recipe"
+          ? "g"
+          : "pcs";
+      const unit = unitByCodeValue(preferredCode) || state.units[0] || null;
+
+      if (unit) {
+        unitSelect.value = unit.id;
       }
     }
 
@@ -1597,8 +1624,9 @@ export function renderDashboard(): string {
         const title = line.lineKind === "recipe"
           ? "↳ " + line.productName + (line.childRecipeVersionCode ? " / " + line.childRecipeVersionCode : "")
           : line.productName;
+        const displayTitle = title + (line.fulfillmentMode === "delivery_packaging" ? " · доставка" : "");
         return [
-          title,
+          displayTitle,
           qty.format(Number(line.quantity)) + " " + unitCodeLabel(line.unitCode),
           line.quantityMode === "prepared_output" ? "после обработки" : "со склада",
           money.format(Number(line.extraWastePercent)) + "%",
@@ -2105,6 +2133,7 @@ export function renderDashboard(): string {
       document.getElementById("refresh-kmrs").addEventListener("click", refreshKmrs);
       document.getElementById("link-all-kmrs").addEventListener("click", linkAllSuggestedMenuItems);
       document.getElementById("menu-search").addEventListener("input", renderKmrsMenu);
+      document.getElementById("new-recipe-type").addEventListener("change", syncNewRecipeYieldUnit);
       document.getElementById("add-recipe").addEventListener("click", createRecipeFromForm);
       document.getElementById("add-category").addEventListener("click", createCategoryFromForm);
       document.getElementById("add-product").addEventListener("click", createProductFromForm);
@@ -2160,12 +2189,14 @@ export function renderDashboard(): string {
           organizationId: summary.organization.id,
           locationId: summary.primaryLocation.id,
           kmrsOrderId: "demo-preview-order",
+          fulfillmentType: "delivery",
           lines: [
             {
               kmrsItemId: "demo-classic-burger",
               quantity: 2,
               salePrice: 45,
-              currency: summary.organization.defaultCurrency
+              currency: summary.organization.defaultCurrency,
+              fulfillmentType: "delivery"
             }
           ]
         };

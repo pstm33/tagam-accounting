@@ -144,6 +144,7 @@ const unitNames = {
   ml: "миллилитр",
   l: "литр",
   pcs: "штука",
+  dish: "блюдо",
 };
 
 const client = new Client({ connectionString: databaseUrl });

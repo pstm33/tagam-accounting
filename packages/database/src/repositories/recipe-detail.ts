@@ -28,11 +28,15 @@ export type RecipeCostRequirementRecord = {
   effectiveYieldPercent: number;
 };
 
+export type RecipeFulfillmentMode = "dine_in" | "delivery";
+
 export type RecipeCostLineRecord = {
   recipeLineId: string;
   lineKind: "product" | "recipe";
   productId: string | null;
   productName: string;
+  productType: string | null;
+  fulfillmentMode: "base" | "delivery_packaging";
   childRecipeVersionId: string | null;
   childRecipeName: string | null;
   childRecipeVersionCode: string | null;
@@ -74,6 +78,12 @@ export type RecipeCostDetailRecord = {
   costingStatus: "complete" | "incomplete";
   totalCost: number | null;
   costPerYieldUnit: number | null;
+  dineInTotalCost: number | null;
+  dineInCostPerYieldUnit: number | null;
+  deliveryPackagingCost: number | null;
+  deliveryTotalCost: number | null;
+  deliveryCostPerYieldUnit: number | null;
+  fulfillmentMode: RecipeFulfillmentMode;
   foodCostPercent: number | null;
   grossMargin: number | null;
   recommendedMenuPrice: number | null;
@@ -102,6 +112,7 @@ type RecipeLineRow = {
   recipeLineId: string;
   productId: string | null;
   productName: string | null;
+  productType: string | null;
   childRecipeVersionId: string | null;
   childRecipeName: string | null;
   childRecipeVersionCode: string | null;
@@ -134,7 +145,7 @@ export async function getRecipeCostDetail(
   pool: DatabasePool,
   organizationId: string,
   recipeVersionId: string,
-  options: { locationId?: string } = {},
+  options: { locationId?: string; fulfillmentMode?: RecipeFulfillmentMode } = {},
 ): Promise<RecipeCostDetailRecord | null> {
   return getRecipeCostDetailInternal(pool, organizationId, recipeVersionId, options, []);
 }
@@ -143,7 +154,7 @@ async function getRecipeCostDetailInternal(
   pool: DatabasePool,
   organizationId: string,
   recipeVersionId: string,
-  options: { locationId?: string },
+  options: { locationId?: string; fulfillmentMode?: RecipeFulfillmentMode },
   stack: string[],
 ): Promise<RecipeCostDetailRecord | null> {
   if (stack.includes(recipeVersionId)) {
@@ -168,12 +179,26 @@ async function getRecipeCostDetailInternal(
     );
   }
 
-  const complete = lines.length > 0 && lines.every((line) => line.costStatus === "ok" && line.lineCost !== null);
-  const totalCost = complete
-    ? lines.reduce((sum, line) => sum + (line.lineCost ?? 0), 0)
-    : null;
+  const fulfillmentMode = normalizeFulfillmentMode(options.fulfillmentMode);
+  const dineInLines = lines.filter((line) => line.fulfillmentMode !== "delivery_packaging");
+  const deliveryLines = lines;
+  const includedLines = fulfillmentMode === "delivery" ? deliveryLines : dineInLines;
+  const complete =
+    includedLines.length > 0 && includedLines.every((line) => line.costStatus === "ok" && line.lineCost !== null);
+  const dineInComplete =
+    dineInLines.length > 0 && dineInLines.every((line) => line.costStatus === "ok" && line.lineCost !== null);
+  const deliveryComplete =
+    deliveryLines.length > 0 && deliveryLines.every((line) => line.costStatus === "ok" && line.lineCost !== null);
+  const packagingLines = lines.filter((line) => line.fulfillmentMode === "delivery_packaging");
+  const packagingComplete = packagingLines.every((line) => line.costStatus === "ok" && line.lineCost !== null);
+  const totalCost = complete ? sumLineCost(includedLines) : null;
+  const dineInTotalCost = dineInComplete ? sumLineCost(dineInLines) : null;
+  const deliveryPackagingCost = packagingComplete ? sumLineCost(packagingLines) : null;
+  const deliveryTotalCost = deliveryComplete ? sumLineCost(deliveryLines) : null;
   const yieldQuantity = toNumber(header.yieldQuantity);
   const costPerYieldUnit = totalCost === null ? null : totalCost / yieldQuantity;
+  const dineInCostPerYieldUnit = dineInTotalCost === null ? null : dineInTotalCost / yieldQuantity;
+  const deliveryCostPerYieldUnit = deliveryTotalCost === null ? null : deliveryTotalCost / yieldQuantity;
   const menuPrice = toNullableNumber(header.menuPrice);
   const targetFoodCostPercent = toNullableNumber(header.targetFoodCostPercent);
   const foodCostPercent =
@@ -185,7 +210,7 @@ async function getRecipeCostDetailInternal(
     costPerYieldUnit !== null && targetFoodCostPercent !== null && targetFoodCostPercent > 0
       ? costPerYieldUnit / (targetFoodCostPercent / 100)
       : null;
-  const requirements = complete ? aggregateRequirements(lines.flatMap((line) => line.requirements)) : [];
+  const requirements = complete ? aggregateRequirements(includedLines.flatMap((line) => line.requirements)) : [];
 
   return {
     ...header,
@@ -193,6 +218,12 @@ async function getRecipeCostDetailInternal(
     costingStatus: complete ? "complete" : "incomplete",
     totalCost,
     costPerYieldUnit,
+    dineInTotalCost,
+    dineInCostPerYieldUnit,
+    deliveryPackagingCost,
+    deliveryTotalCost,
+    deliveryCostPerYieldUnit,
+    fulfillmentMode,
     foodCostPercent,
     grossMargin,
     recommendedMenuPrice,
@@ -248,6 +279,7 @@ async function getRows(
         rl.id as "recipeLineId",
         p.id as "productId",
         p.name as "productName",
+        p.product_type as "productType",
         child_rv.id as "childRecipeVersionId",
         child_r.name as "childRecipeName",
         child_rv.version_code as "childRecipeVersionCode",
@@ -327,6 +359,7 @@ async function getRows(
         rl.id,
         p.id,
         p.name,
+        p.product_type,
         child_rv.id,
         child_r.name,
         child_rv.version_code,
@@ -388,6 +421,8 @@ function productCostLine(row: RecipeLineRow): RecipeCostLineRecord {
     lineKind: "product",
     productId: row.productId,
     productName: row.productName ?? "Product",
+    productType: row.productType,
+    fulfillmentMode: row.productType === "packaging" ? "delivery_packaging" : "base",
     childRecipeVersionId: null,
     childRecipeName: null,
     childRecipeVersionCode: null,
@@ -425,6 +460,8 @@ async function childRecipeLine(
     lineKind: "recipe" as const,
     productId: row.childOutputProductId,
     productName: row.childRecipeName ?? "Recipe",
+    productType: null,
+    fulfillmentMode: "base" as const,
     childRecipeVersionId: row.childRecipeVersionId,
     childRecipeName: row.childRecipeName,
     childRecipeVersionCode: row.childRecipeVersionCode,
@@ -508,6 +545,14 @@ function incompleteChildLine(
     costStatus,
     requirements: [],
   };
+}
+
+function normalizeFulfillmentMode(value: RecipeFulfillmentMode | undefined): RecipeFulfillmentMode {
+  return value === "delivery" ? "delivery" : "dine_in";
+}
+
+function sumLineCost(lines: RecipeCostLineRecord[]): number {
+  return lines.reduce((sum, line) => sum + (line.lineCost ?? 0), 0);
 }
 
 function lineQuantities(row: Pick<RecipeLineRow, "processing" | "quantity" | "quantityMode" | "extraWastePercent">): QuantityResult {

@@ -251,12 +251,13 @@ async function ensureRecipeDraftsForKmrsItems(
       select id
       from units
       where organization_id = $1
-        and code = 'pcs'
+        and code in ('dish', 'pcs')
+      order by case code when 'dish' then 0 else 1 end
       limit 1
     `,
     [organizationId],
   );
-  const yieldUnitId = getId(unitResult.rows[0], "pcs unit");
+  const yieldUnitId = getId(unitResult.rows[0], "dish or pcs unit");
   const seenNames = new Set<string>();
   let createdCount = 0;
   let updatedCount = 0;

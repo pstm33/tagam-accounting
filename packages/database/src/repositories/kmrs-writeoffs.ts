@@ -7,6 +7,7 @@ export type KmrsSaleLineInput = {
   quantity: number;
   salePrice?: number;
   currency?: string;
+  fulfillmentType?: "dine_in" | "delivery";
   rawPayload?: unknown;
 };
 
@@ -17,6 +18,7 @@ export type KmrsSaleWriteoffInput = {
   orderedAt?: string;
   status?: string;
   paymentStatus?: string;
+  fulfillmentType?: "dine_in" | "delivery";
   lines: KmrsSaleLineInput[];
   rawPayload?: unknown;
 };
@@ -46,6 +48,7 @@ export type KmrsSaleWriteoffLine = {
   currency: string;
   recipeVersionId: string;
   recipeName: string;
+  fulfillmentType: "dine_in" | "delivery";
   recipeCostPerUnit: number;
   theoreticalCost: number;
   foodCostPercent: number | null;
@@ -124,12 +127,13 @@ export async function previewKmrsSaleWriteoff(
   pool: DatabasePool,
   input: KmrsSaleWriteoffInput,
 ): Promise<KmrsSaleWriteoffPreview> {
-  const validatedLines = validateLines(input.lines);
+  const validatedLines = validateLines(input.lines, input.fulfillmentType);
   const warnings: string[] = [];
   const lines: KmrsSaleWriteoffLine[] = [];
 
   for (const [lineIndex, saleLine] of validatedLines.entries()) {
     const mapping = await findMenuRecipe(pool, input.organizationId, input.locationId, saleLine.kmrsItemId);
+    const fulfillmentType = saleLine.fulfillmentType ?? "delivery";
 
     if (!mapping) {
       warnings.push(`KMRS item ${saleLine.kmrsItemId} is not linked to an active recipe`);
@@ -138,6 +142,7 @@ export async function previewKmrsSaleWriteoff(
 
     const recipe = await getRecipeCostDetail(pool, input.organizationId, mapping.recipeVersionId, {
       locationId: input.locationId,
+      fulfillmentMode: fulfillmentType,
     });
 
     if (!recipe) {
@@ -183,6 +188,7 @@ export async function previewKmrsSaleWriteoff(
       currency,
       recipeVersionId: recipe.recipeVersionId,
       recipeName: recipe.recipeName,
+      fulfillmentType,
       recipeCostPerUnit: recipe.costPerYieldUnit ?? 0,
       theoreticalCost,
       foodCostPercent:
@@ -382,7 +388,10 @@ export async function commitKmrsSaleWriteoff(
   }
 }
 
-function validateLines(lines: KmrsSaleLineInput[]): KmrsSaleLineInput[] {
+function validateLines(
+  lines: KmrsSaleLineInput[],
+  defaultFulfillmentType: KmrsSaleWriteoffInput["fulfillmentType"],
+): KmrsSaleLineInput[] {
   if (!Array.isArray(lines) || lines.length === 0) {
     throw new Error("lines must contain at least one KMRS sale line");
   }
@@ -400,11 +409,26 @@ function validateLines(lines: KmrsSaleLineInput[]): KmrsSaleLineInput[] {
       throw new Error(`lines[${index}].salePrice must be zero or greater`);
     }
 
+    const fulfillmentType = normalizeFulfillmentType(line.fulfillmentType ?? defaultFulfillmentType);
+
     return {
       ...line,
       kmrsItemId: line.kmrsItemId.trim(),
+      fulfillmentType,
     };
   });
+}
+
+function normalizeFulfillmentType(value: KmrsSaleLineInput["fulfillmentType"]): "dine_in" | "delivery" {
+  if (value === undefined) {
+    return "delivery";
+  }
+
+  if (value !== "dine_in" && value !== "delivery") {
+    throw new Error("fulfillmentType must be dine_in or delivery");
+  }
+
+  return value;
 }
 
 async function findMenuRecipe(
